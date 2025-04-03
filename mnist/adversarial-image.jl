@@ -6,13 +6,6 @@ import PythonCall
 import MathOptAI as MOAI
 import MLDatasets
 
-nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
-image_index = 7
-adversarial_label = 1
-# Network is trained so that outputs represent 0-9
-adversarial_target_index = adversarial_label + 1
-threshold = 0.6
-
 # TODO: make_model function
 # - accepts filename, image index, adversary label, and formulation
 # - returns JuMP model
@@ -22,56 +15,69 @@ threshold = 0.6
 # - solves the JuMP model, extracts the pixel values
 # - returns a matrix of the pixel values, along with the network's predictions?
 
-predictor = MOAI.PytorchModel(nnfile)
-
-# TODO: Configurable data dir
-datadir = joinpath("data", "MNIST", "raw")
-test_data = MLDatasets.MNIST(; split = :test, dir = datadir)
-
-length_dim = 28
-height_dim = 28
-
-xref = test_data[image_index].features
-
-# TODO: Evaluate the sample image with the network to make sure it is correct
-#
-torch = PythonCall.pyimport("torch")
-nn = torch.load(nnfile, weights_only = false)
-input_tensor = torch.tensor(vec(xref))
-prediction = nn(input_tensor)
-# How can I make sure my Julia and Python matrices are not transposes of each other?
-# This is really something that should be documented by the packages that convert the
-# images to arrays.
-#
-# In MLDatasets, images are indexed by width, then height. I.e. they are column-major.
-# Fortunately, `vec` stacks matrices by column, so it gives us the correct flattened
-# vector.
-
-# MOAI implements the complementarity as x1*x2 == 0. TODO: Change this to <= 0.
-config = Dict(:ReLU => MOAI.ReLUQuadratic())
-
-m = JuMP.Model()
-JuMP.@variable(m, 0.0 <= x[1:height_dim, 1:length_dim] <= 1.0, start = 0.5)
-y, _ = MOAI.add_predictor(m, predictor, vec(x); config)
-JuMP.@constraint(m, 0.0 .<= y .<= 1.0)
-
-# Minimize 1-norm of deviation from reference image using slack variables
-JuMP.@variable(m, slack_pos[1:height_dim, 1:length_dim] >= 0.0)
-JuMP.@variable(m, slack_neg[1:height_dim, 1:length_dim] >= 0.0)
-JuMP.@constraint(m, x .- xref .== slack_pos .- slack_neg)
-JuMP.@objective(m, Min, sum(slack_pos .+ slack_neg))
-
-JuMP.@constraint(m, y[adversarial_target_index] >= threshold)
-
-optimizer = JuMP.optimizer_with_attributes(
-    Ipopt.Optimizer,
-    "linear_solver" => "ma27",
+function find_adversarial_image(
+    nnfile::String,
+    image_index::Int,
+    adversarial_label::Int,
+    threshold::Float64,
 )
-JuMP.set_optimizer(m, optimizer)
-JuMP.optimize!(m)
+    predictor = MOAI.PytorchModel(nnfile)
 
-predicted_adversarial_output = JuMP.value.(y)
-adversarial_x = JuMP.value.(x)
+    # TODO: Configurable data dir
+    datadir = joinpath("data", "MNIST", "raw")
+    test_data = MLDatasets.MNIST(; split = :test, dir = datadir)
+
+    length_dim, height_dim = test_data[1].features
+    xref = test_data[image_index].features
+    target_label = test_data[image_index].targets
+
+    println("FINDING ADVERSARIAL EXAMPLE FOR IMAGE $(image_index)")
+    println("LABEL FOR IMAGE $(image_index): $(target_label)")
+    println("LOADING NN FROM FILE: $nnfile")
+    torch = PythonCall.pyimport("torch")
+    nn = torch.load(nnfile, weights_only = false)
+    pyinput = torch.tensor(vec(xref))
+    pyoutput = nn(pyinput).detach().numpy()
+    output = PythonCall.pyconvert(Array, pyoutput)
+    # Indices of `output` are 1-indexed, but predictions are 0-indexed
+    prediction = argmax(output) - 1
+    println("NN PREDICTS: $output")
+    # How can I make sure my Julia and Python matrices are not transposes of each other?
+    # This is really something that should be documented by the packages that convert the
+    # images to arrays.
+    #
+    # In MLDatasets, images are indexed by width, then height. I.e. they are column-major.
+    # Fortunately, `vec` stacks matrices by column, so it gives us the correct flattened
+    # vector.
+
+    config = Dict(:ReLU => MOAI.ReLUQuadratic())
+
+    m = JuMP.Model()
+    JuMP.@variable(m, 0.0 <= x[1:height_dim, 1:length_dim] <= 1.0, start = 0.5)
+    y, _ = MOAI.add_predictor(m, predictor, vec(x); config)
+    JuMP.@constraint(m, 0.0 .<= y .<= 1.0)
+
+    # Minimize 1-norm of deviation from reference image using slack variables
+    JuMP.@variable(m, slack_pos[1:height_dim, 1:length_dim] >= 0.0)
+    JuMP.@variable(m, slack_neg[1:height_dim, 1:length_dim] >= 0.0)
+    JuMP.@constraint(m, x .- xref .== slack_pos .- slack_neg)
+    JuMP.@objective(m, Min, sum(slack_pos .+ slack_neg))
+
+    JuMP.@constraint(m, y[adversarial_target_index] >= threshold)
+
+    optimizer = JuMP.optimizer_with_attributes(
+        Ipopt.Optimizer,
+        "linear_solver" => "ma27",
+    )
+    JuMP.set_optimizer(m, optimizer)
+    JuMP.optimize!(m)
+
+    predicted_adversarial_output = JuMP.value.(y)
+    adversarial_x = JuMP.value.(x)
+    # TODO: return solve time, iteration count, etc.
+    info = NamedTuple()
+    return adversarial_x, info
+end
 
 function plot_image(x::Matrix; kwargs...)
     return Plots.heatmap(
@@ -86,4 +92,21 @@ function plot_image(x::Matrix; kwargs...)
     )
 end
 
-plot_image(adversarial_x)
+if ABSPATH(PROGRAM_FILE) == @__FILE__
+    # TODO: Most of this goes in CLI, which will be in a separate script
+    # - Why do I do CLI in a separage script?
+    # - So I can reuse it?
+    nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
+    image_index = 7
+    adversarial_label = 1
+    # Network is trained so that outputs represent 0-9
+    adversarial_target_index = adversarial_label + 1
+    threshold = 0.6
+
+    find_adversarial_image(
+        nnfile,
+        image_index,
+        adversarial_label,
+        threshold,
+    )
+end
