@@ -22,3 +22,8 @@ def get_data_dir(create=False):
 def get_nn_dir(create=False):
     nndir = os.path.join(FILEDIR, "nn-models")
     return _validate_dir(nndir, create)
+
+
+def get_image_dir(create=False):
+    imagedir = os.path.join(FILEDIR, "images")
+    return _validate_dir(nndir, create)
