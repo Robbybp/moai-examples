@@ -92,7 +92,7 @@ function plot_image(x::Matrix; kwargs...)
     )
 end
 
-if ABSPATH(PROGRAM_FILE) == @__FILE__
+if abspath(PROGRAM_FILE) == @__FILE__
     # TODO: Most of this goes in CLI, which will be in a separate script
     # - Why do I do CLI in a separage script?
     # - So I can reuse it?
