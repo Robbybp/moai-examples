@@ -23,7 +23,7 @@ function get_adversarial_model(
     image_index::Int,
     adversarial_label::Int,
     threshold::Float64,
-)::JuMP.Model
+)
     # Network is trained so that outputs represent 0-9
     adversarial_target_index = adversarial_label + 1
     predictor = MOAI.PytorchModel(nnfile)
@@ -36,7 +36,6 @@ function get_adversarial_model(
     xref = test_data[image_index].features
     target_label = test_data[image_index].targets
 
-    println("FINDING ADVERSARIAL EXAMPLE FOR IMAGE $(image_index)")
     println("LABEL FOR IMAGE $(image_index): $(target_label)")
     println("LOADING NN FROM FILE: $nnfile")
     torch = PythonCall.pyimport("torch")
@@ -55,13 +54,14 @@ function get_adversarial_model(
     # Fortunately, `vec` stacks matrices by column, so it gives us the correct flattened
     # vector.
 
+    # TODO: Relax complementarity constraints and set tolerance
     config = Dict(:ReLU => MOAI.ReLUQuadratic())
 
     m = JuMP.Model()
     println
     #JuMP.@variable(m, 0.0 <= x[1:height_dim, 1:length_dim] <= 1.0, start = 0.5)
     JuMP.@variable(m, 0.0 <= x[i in 1:height_dim, j in 1:length_dim] <= 1.0, start = xref[i, j])
-    y, _ = MOAI.add_predictor(m, predictor, vec(x); config)
+    y, formulation = MOAI.add_predictor(m, predictor, vec(x); config)
     JuMP.@constraint(m, 0.0 .<= y .<= 1.0)
 
     # Minimize 1-norm of deviation from reference image using slack variables
@@ -72,7 +72,7 @@ function get_adversarial_model(
 
     JuMP.@constraint(m, y[adversarial_target_index] >= threshold)
 
-    return m
+    return m, y, formulation
 end
 
 function find_adversarial_image(
@@ -81,7 +81,10 @@ function find_adversarial_image(
     adversarial_label::Int,
     threshold::Float64,
 )
-    m = get_adversarial_model(nnfile, image_index, adversarial_label, threshold)
+    println("FINDING ADVERSARIAL EXAMPLE FOR IMAGE $(image_index)")
+    m, y, formulation = get_adversarial_model(
+        nnfile, image_index, adversarial_label, threshold
+    )
 
     optimizer = JuMP.optimizer_with_attributes(
         MadNLP.Optimizer,
