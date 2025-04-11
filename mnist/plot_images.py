@@ -35,6 +35,8 @@ def main(args):
     ntest = len(test_dataset)
     print(f"Accuracy on test set of {ntest} samples: {acc}")
 
+    # NOTE: The following is GPT's code for plottin an array of images
+
     fname = _get_fname(args)
     fpath = os.path.join(config.get_nn_dir(create=True), fname)
     if args.dry_run:
