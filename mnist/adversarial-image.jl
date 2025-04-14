@@ -101,7 +101,7 @@ function find_adversarial_image(
     JuMP.optimize!(m)
 
     predicted_adversarial_output = JuMP.value.(y)
-    adversarial_x = JuMP.value.(x)
+    adversarial_x = JuMP.value.(m[:x])
     # TODO: return solve time, iteration count, etc.
     info = NamedTuple()
     return adversarial_x, info
