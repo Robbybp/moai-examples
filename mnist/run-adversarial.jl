@@ -6,6 +6,7 @@ import MathOptAI as MOAI
 import MLDatasets
 
 include("adversarial-image.jl")
+VALID_OPTIMIZERS = keys(OPTIMIZER_LOOKUP)
 
 FILEDIR = dirname(@__FILE__)
 
@@ -37,6 +38,11 @@ ArgParse.add_arg_table(
         :help=>"Directory to save data",
         :default=>joinpath(FILEDIR, "data"),
     ),
+    "--solver",
+    Dict(
+        :help => "Solver for adversarial optimization problem $(VALID_OPTIMIZERS)",
+        :default => "madnlp",
+    ),
 )
 args = ArgParse.parse_args(settings)
 
@@ -45,4 +51,5 @@ find_adversarial_image(
     args["index"],
     args["label"],
     args["threshold"],
+    args["solver"],
 )

@@ -18,6 +18,36 @@ import MLDatasets
 # - solves the JuMP model, extracts the pixel values
 # - returns a matrix of the pixel values, along with the network's predictions?
 
+OPTIMIZER_LOOKUP = Dict(
+    "ipopt" => Ipopt.Optimizer,
+    "madnlp" => MadNLP.Optimizer,
+)
+OPTIMIZER_ATTRIBUTES_LOOKUP = Dict(
+    "ipopt"  => [
+        "tol" => 1e-6,
+        "linear_solver" => "ma27",
+        "print_user_options" => "yes",
+        "print_timing_statistics" => "yes",
+    ],
+    "madnlp" => ["tol" => 1e-6, "linear_solver" => MadNLPHSL.Ma27Solver],
+)
+
+ADVERSARIAL_LABEL_LOOKUP = Dict(
+    0 => 8,
+    1 => 9,
+    2 => 1,
+    3 => 8,
+    4 => 9,
+    5 => 6,
+    6 => 8,
+    7 => 1,
+    8 => 9,
+    9 => 4,
+)
+function get_adversarial_label(target::Int)
+    return ADVERSARIAL_LABEL_LOOKUP[target]
+end
+
 function get_adversarial_model(
     nnfile::String,
     image_index::Int,
@@ -54,8 +84,7 @@ function get_adversarial_model(
     # Fortunately, `vec` stacks matrices by column, so it gives us the correct flattened
     # vector.
 
-    # TODO: Relax complementarity constraints and set tolerance
-    config = Dict(:ReLU => MOAI.ReLUQuadratic())
+    config = Dict(:ReLU => MOAI.ReLUQuadratic(relaxation_parameter = 1e-6))
 
     m = JuMP.Model()
     println
@@ -80,6 +109,7 @@ function find_adversarial_image(
     image_index::Int,
     adversarial_label::Int,
     threshold::Float64,
+    optimizer_name::String,
 )
     println("FINDING ADVERSARIAL EXAMPLE FOR IMAGE $(image_index)")
     m, y, formulation = get_adversarial_model(
@@ -87,16 +117,9 @@ function find_adversarial_image(
     )
 
     optimizer = JuMP.optimizer_with_attributes(
-        MadNLP.Optimizer,
-        "linear_solver"=>MadNLPHSL.Ma27Solver,
-        #"linear_solver"=>MadNLPMumps.MumpsSolver,
+        OPTIMIZER_LOOKUP[optimizer_name],
+        OPTIMIZER_ATTRIBUTES_LOOKUP[optimizer_name]...,
     )
-    #optimizer = JuMP.optimizer_with_attributes(
-    #    Ipopt.Optimizer,
-    #    #"linear_solver" => "mumps",
-    #    "print_user_options" => "yes",
-    #    "print_timing_statistics" => "yes",
-    #)
     JuMP.set_optimizer(m, optimizer)
     JuMP.optimize!(m)
 
@@ -134,5 +157,6 @@ if abspath(PROGRAM_FILE) == @__FILE__
         image_index,
         adversarial_label,
         threshold,
+        "madnlp",
     )
 end
