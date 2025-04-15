@@ -1,10 +1,12 @@
 import JuMP
 import MadNLP
 import MadNLPHSL
-import MadNLPTests
+import NLPModelsJuMP
 import MathProgIncidence
+import SparseArrays
 
 include("adversarial-image.jl")
+include("linalg.jl")
 
 nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
 image_index = 7
@@ -22,8 +24,6 @@ m, outputs, formulation = get_adversarial_model(
 # - Perform a Schur complement decomposition WRT these coordinates, factorize,
 #   backsolve, and solve the Schur system
 # - Compare solutions and make sure they are the same
-
-NLPModelsJuMP = MadNLPTests.NLPModelsJuMP
 
 # Construct NLPModel from JuMP model
 nlp = NLPModelsJuMP.MathOptNLPModel(m)
@@ -139,26 +139,23 @@ end
 
 vars, cons = get_vars_cons(formulation)
 
-# Not sure how I'm going to get these indices into the linear solver...
-struct SchurComplementSolver <: MadNLP.AbstractLinearSolver
-    inner_solver::MadNLP.AbstractLinearSolver
-    var_indices::Vector{Int}
-    con_indices::Vector{Int}
-    # TODO: What else do I need? schur_solver to cache factors, inertia, etc.?
-end
 # linear_solver is constructed by KKTSystem?
 # presumably I can use default_options? Or just pass this info in as
 # options?
 
-function SchurComplementSolver(
-    csc::SparseArrays.SparseMatrixCSC,
-)
-end
-
-opt = Dict("var_indices" => [1, 2, 3], "con_indices" => [4, 5, 6])
+# These indices need to be the same type as the kkt_matrix index type
+# TODO: This needs to be SchurComplementOptions type
+#opt = Dict{String, Vector{Tuple{Int32,Int32}}}("indices" => [])
+opt = SchurComplementOptions()
 # This will be constructed as:
 linear_solver = SchurComplementSolver(
-    csc;
+    kkt_matrix;
     opt = opt,
     logger = MadNLP.MadNLPLogger(),
 )
+
+b = ones(size(kkt_matrix)[1])
+x = copy(b)
+println("Running with $(MadNLP.introduce(linear_solver))")
+MadNLP.factorize!(linear_solver)
+MadNLP.solve!(linear_solver, x)

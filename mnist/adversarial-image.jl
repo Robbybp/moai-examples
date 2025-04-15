@@ -18,6 +18,8 @@ import MLDatasets
 # - solves the JuMP model, extracts the pixel values
 # - returns a matrix of the pixel values, along with the network's predictions?
 
+include("linalg.jl")
+
 OPTIMIZER_LOOKUP = Dict(
     "ipopt" => Ipopt.Optimizer,
     "madnlp" => MadNLP.Optimizer,
@@ -29,7 +31,8 @@ OPTIMIZER_ATTRIBUTES_LOOKUP = Dict(
         "print_user_options" => "yes",
         "print_timing_statistics" => "yes",
     ],
-    "madnlp" => ["tol" => 1e-6, "linear_solver" => MadNLPHSL.Ma27Solver],
+    #"madnlp" => ["tol" => 1e-6, "linear_solver" => MadNLPHSL.Ma27Solver],
+    "madnlp" => ["tol" => 1e-6, "linear_solver" => SchurComplementSolver],
 )
 
 ADVERSARIAL_LABEL_LOOKUP = Dict(
