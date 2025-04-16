@@ -31,6 +31,8 @@ nlp = NLPModelsJuMP.MathOptNLPModel(m)
 # Construct MadNLP's callback API from NLPModels' callback API
 cb = MadNLP.create_callback(MadNLP.SparseCallback, nlp)
 
+# These are the indices of equality and inequality constraints/variables,
+# but I have no way to know exactly which constraints these are.
 ind_cons = MadNLP.get_index_constraints(nlp)
 
 linear_solver = MadNLPHSL.Ma27Solver
@@ -54,6 +56,10 @@ MadNLP.initialize!(kkt)
 #
 # This returns a *reference* to the internal KKT matrix. That is, values will be
 # updated automatically.
+#
+# The KKT matrix is ordered into Hessian and Jacobian blocks, but the Jacobian
+# block is not ordered by (eq, ineq). It is ordered in whatever order the constraints
+# appear in the NLPModel.
 kkt_matrix = MadNLP.get_kkt(kkt)
 
 # Factors will be stored inside the linear_solver instance.
@@ -77,76 +83,19 @@ MadNLP.solve!(kkt.linear_solver, x)
 # - Figure out what methods I need to call to actually use a custom linear
 #   solver during the solve.
 
-function _collect_vars_cons!(
-    formulation::MOAI.AbstractFormulation,
-    predictor::MOAI.AbstractPredictor,
-    variables::Vector{JuMP.VariableRef},
-    constraints::Vector{<:JuMP.ConstraintRef},
-)
-    # By our convention, formulation contains intermediate variables and outputs
-    append!(variables, formulation.variables)
-    for con in formulation.constraints
-        set = JuMP.MOI.get(con.model, JuMP.MOI.ConstraintSet(), con)
-        # By default, we collect EqualTo constraints.
-        if set isa JuMP.MOI.EqualTo
-            push!(constraints, con)
-        end
-    end
-    return nothing
-end
-
-function _collect_vars_cons!(
-    formulation::MOAI.AbstractFormulation,
-    predictor::MOAI.ReLUQuadratic,
-    variables::Vector{JuMP.VariableRef},
-    constraints::Vector{<:JuMP.ConstraintRef},
-)
-    append!(variables, formulation.variables)
-    for con in formulation.constraints
-        set = JuMP.MOI.get(con.model, JuMP.MOI.ConstraintSet(), con)
-        fcn = JuMP.MOI.get(con.model, JuMP.MOI.ConstraintFunction(), con)
-        # For ReLUQuadratic predictors, we include `y*x <= eps` constraints
-        # as well as equality. The the KKT system on which we perform the Schur
-        # complement, these will be: `y*x + s - eps == 0`
-        if (
-                set isa JuMP.MOI.EqualTo
-                || (fcn isa JuMP.MOI.ScalarQuadraticFunction && set isa JuMP.MOI.LessThan)
-        )
-            push!(constraints, con)
-        end
-    end
-    return nothing
-end
-
-function _collect_vars_cons!(
-    formulation::MOAI.PipelineFormulation,
-    predictor::MOAI.Pipeline,
-    variables::Vector{JuMP.VariableRef},
-    constraints::Vector{<:JuMP.ConstraintRef},
-)
-    for layer in formulation.layers
-        _collect_vars_cons!(layer, layer.predictor, variables, constraints)
-    end
-    return nothing
-end
-
-function get_vars_cons(formulation::MOAI.AbstractFormulation)
-    variables = JuMP.VariableRef[]
-    constraints = JuMP.ConstraintRef[]
-    _collect_vars_cons!(formulation, formulation.predictor, variables, constraints)
-    return (; variables, constraints)
-end
-
+include("formulation.jl")
 vars, cons = get_vars_cons(formulation)
 
 # linear_solver is constructed by KKTSystem?
 # presumably I can use default_options? Or just pass this info in as
 # options?
 
-# These indices need to be the same type as the kkt_matrix index type
-# TODO: This needs to be SchurComplementOptions type
-#opt = Dict{String, Vector{Tuple{Int32,Int32}}}("indices" => [])
-opt = SchurComplementOptions()
+# ***THESE INDICES NEED TO BE THE SAME TYPE AS THE KKT_MATRIX INDEX TYPE***
+#
+# Now I need to get these indices from my JuMP model.
+# - I will first need to know what coordinates they are in the NLPModel's Jacobian
+# - Then I will need to know what coordinates they are in the KKT matrix
+opt = SchurComplementOptions(; indices = Tuple{Int32,Int32}[(1,4), (2,5), (3,6)])
 # This will be constructed as:
 linear_solver = SchurComplementSolver(
     kkt_matrix;
