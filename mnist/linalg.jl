@@ -1,12 +1,31 @@
 import SparseArrays
 import MadNLP
+import MadNLPHSL
 
-mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions
+# This seems not to work with a parameterized type?
 #@kwdef mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions where {INT}
+mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions
     ReducedSolver::Type
     SchurSolver::Type
     indices::Vector{Tuple{INT,INT}}
-    SchurComplementOptions() = new{Int32}(MadNLPHSL.Ma27Solver, MadNLPHSL.Ma27Solver, [])
+    #function SchurComplementOption(;
+    #    ReducedSolver::Type = MadNLPHSL.Ma27Solver,
+    #    SchurSolver::Type = MadNLPHSL.Ma27Solver,
+    #    indices::Vector{Tuple{INT,INT}} = Tuple{Int32,Int32}[],
+    #) where {INT}
+    #    int = eltype(eltype(indices))
+    #    return new{int}(ReducedSolver, SchurSolver, indices)
+    #end
+    SchurComplementOptions(;
+        #MadNLPHSL.Ma27Solver,
+        #MadNLPHSL.Ma27Solver,
+        indices = Tuple{Int32,Int32}[],
+    ) = new{eltype(eltype(indices))}(
+        MadNLPHSL.Ma27Solver,
+        MadNLPHSL.Ma27Solver,
+        #Tuple{Int32,Int32}[],
+        indices,
+    )
 end
 
 # TODO: Should this SparseSchurComplementSolver?
