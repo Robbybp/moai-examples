@@ -27,36 +27,17 @@ if solve
 end
 
 nlp = NLPModelsJuMP.MathOptNLPModel(m)
-# To create this nlp, NLPModelsJuMP is running the parsers on backend(m)
-moimodel = JuMP.backend(m)
-# This index_map maps VariableIndex from backend to their position in
-# ListOfVariableIndices
-index_map, nvar, lvar, uvar, x0 = NLPModelsJuMP.parser_variables(moimodel)
-
-# These extract the bound arrays, but don't tell us which JuMP constraints
-# are at which positions.
-# Implicitly, the order NLPModelsJuMP will use is (linear, quadratic, nonlinear).
-# But what is the order within each of these?
-# ^The order within linear/quadratic cons is actually specified in index_map
-#  Why are the nonlinear constraints not specified here as well?
-#
-#nlin, lincon, lin_lcon, lin_ucon, quadcon, quad_lcon, quad_ucon =
-#  NLPModelsJuMP.parser_MOI(moimodel, index_map, nvar)
-#nlp_data = NLPModelsJuMP._nlp_block(moimodel)
-#nnln, nlcon, nl_lcon, nl_ucon = NLPModelsJuMP.parser_NL(nlp_data, hessian = true)
-
-# This populates index_map with the correct indices
-NLPModelsJuMP.parser_MOI(moimodel, index_map, nvar)
-# - Gets constraint types, iterates over them
-# - Gets constraint indices of the given type from `backend`
-# - get the constraint function for this index
-# - index-map maps original index (in backend) to new index
-
-#nlp_data = NLPModelsJuMP._nlp_block(moimodel)
-#NLPModelsJuMP.parser_NL(nlp_data, hessian = true)
 
 include("formulation.jl")
 nn_vars, nn_cons = get_vars_cons(formulation)
+
+import MathProgIncidence as MPIN
+igraph = MPIN.IncidenceGraphInterface(m)
+blocks = MPIN.block_triangularize(nn_cons, nn_vars)
+cons = vcat([b[1] for b in blocks]...)
+vars = vcat([b[2] for b in blocks]...)
+imat = MPIN.incidence_matrix(cons, vars)
+display(imat)
 
 include("nlpmodels.jl")
 # These are the var/con orders in the MathOptNLPModel.
@@ -96,3 +77,10 @@ kkt = MadNLP.create_kkt_system(
 MadNLP.initialize!(kkt)
 kkt_matrix = MadNLP.get_kkt(kkt)
 submatrix = kkt_matrix[nn_kktrows, nn_kktcols]
+display(submatrix)
+
+igraph = MPIN.IncidenceGraphInterface(submatrix)
+blocks = MPIN.block_triangularize(igraph)
+rows = vcat([b[1] for b in blocks]...)
+cols = vcat([b[2] for b in blocks]...)
+display(submatrix[rows, cols])
