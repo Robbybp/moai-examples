@@ -12,6 +12,7 @@ function make_small_model(; relaxation_parameter = 1e-6)
     predictor = MOAI.Pipeline(
         MOAI.Affine(A1, b1),
         MOAI.ReLUQuadratic(; relaxation_parameter = relaxation_parameter),
+        #MOAI.Tanh(),
         MOAI.Affine(A2, b2),
         MOAI.SoftMax(),
     )
