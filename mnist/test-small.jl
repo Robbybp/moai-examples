@@ -41,12 +41,15 @@ nlp = NLPModelsJuMP.MathOptNLPModel(m)
 include("formulation.jl")
 nn_vars, nn_cons = get_vars_cons(formulation)
 
-igraph = MPIN.IncidenceGraphInterface(m)
-blocks = MPIN.block_triangularize(nn_cons, nn_vars)
-cons = vcat([b[1] for b in blocks]...)
-vars = vcat([b[2] for b in blocks]...)
-imat = MPIN.incidence_matrix(cons, vars)
-display(imat)
+display_bt_nn_system = false
+if display_bt_nn_system
+    igraph = MPIN.IncidenceGraphInterface(m)
+    blocks = MPIN.block_triangularize(nn_cons, nn_vars)
+    cons = vcat([b[1] for b in blocks]...)
+    vars = vcat([b[2] for b in blocks]...)
+    imat = MPIN.incidence_matrix(cons, vars)
+    display(imat)
+end
 
 include("nlpmodels.jl")
 # These are the var/con orders in the MathOptNLPModel.
@@ -92,9 +95,10 @@ kkt = MadNLP.create_kkt_system(
 )
 MadNLP.initialize!(kkt)
 kkt_matrix = MadNLP.get_kkt(kkt)
+
+# Extract the Jacobian submatrix we want to exploit.
 submatrix = kkt_matrix[nn_kktrows, nn_kktcols]
 display(submatrix)
-
 igraph = MPIN.IncidenceGraphInterface(submatrix)
 blocks = MPIN.block_triangularize(igraph)
 rows = vcat([b[1] for b in blocks]...)
@@ -126,12 +130,15 @@ rhs = ones(kkt_dim)
 # Solve linear system with MA27
 ma27 = MadNLPHSL.Ma27Solver(kkt_matrix)
 MadNLP.factorize!(ma27)
+kkt_inertia_ma27 = MadNLP.inertia(ma27)
+println("Inertia of the full KKT matrix according to MA27:")
+println("(pos, zero, neg) = $kkt_inertia_ma27")
 d_ma27 = copy(rhs)
 MadNLP.solve!(ma27, d_ma27)
 d_nnvars_ma27 = d_ma27[nn_kktcols]
 d_nncons_ma27 = d_ma27[nn_kktrows]
 
-sym_indices = vcat(nn_kktcols, nn_kktrows)
+sym_indices = Vector{Int32}(vcat(nn_kktcols, nn_kktrows))
 sym_submatrix = kkt_matrix[sym_indices, sym_indices]
 sym_full = sym_submatrix + sym_submatrix'
 roworder, colorder = block_triangularize(sym_full)
@@ -141,32 +148,53 @@ sym_full_bt = sym_full[roworder, colorder]
 ma27_schur = MadNLPHSL.Ma27Solver(sym_submatrix)
 MadNLP.factorize!(ma27_schur)
 inertia = MadNLP.inertia(ma27_schur)
+println("Inertia of the symmetric submatrix on which we will pivot, according to MA27")
 println("(pos, zero, neg) = $inertia")
 
-# Sanity check that the symmetric matrix that we extract still decomposes (if we're
-# okay with losing symmetry)
-hess_submatrix = kkt_matrix[nn_kktcols, nn_kktcols]
-hess_submatrix = hess_submatrix + hess_submatrix'
-jac_submatrix = kkt_matrix[nn_kktrows, nn_kktcols]
-lefthalf = vcat(hess_submatrix, jac_submatrix)
-# This was for a sanity check without the Hessian block. Should have same
-# number of pos/neg eval. (We should have this with the Hessian block too...)
-#lefthalf = vcat(SparseArrays.spzeros(schur_dim, schur_dim), jac_submatrix)
-righthalf = vcat(jac_submatrix', SparseArrays.spzeros(schur_dim, schur_dim))
-sym = hcat(lefthalf, righthalf)
-#roworder, colorder = block_triangularize(sym)
-#sym_bt = sym[roworder, colorder]
-#igraph = MPIN.IncidenceGraphInterface(sym)
-#blocks = MPIN.block_triangularize(igraph)
-# I'll check the inertia of this matrix (without δ) because I can block-triangularize
-# it as a sanity check
-ma27_schur_noreg = MadNLPHSL.Ma27Solver(sym)
-MadNLP.factorize!(ma27_schur_noreg)
-inertia = MadNLP.inertia(ma27_schur_noreg)
-# NOTE: MadNLP's documentation of `inertia` is wrong.
-println("(pos, zero, neg) = $inertia")
-# This system has the same number of positive as negative eigenvalues, and no
-# zero eigenvalues.
+test_permuted = false
+if test_permuted
+    sym_index_set = Set(sym_indices)
+    reduced_indices = [i for i in 1:kkt_dim if !(i in sym_index_set)]
+    permutation_order = vcat(reduced_indices, sym_indices) 
+    permuted_kkt_matrix = kkt_matrix[permutation_order, permutation_order]
+    ma27_permuted = MadNLPHSL.Ma27Solver(permuted_kkt_matrix)
+    MadNLP.factorize!(ma27_permuted)
+    inertia = MadNLP.inertia(ma27_permuted)
+    println("Inertia of permuted KKT matrix, according to MA27:")
+    println("(pos, zero, neg) = $inertia")
+end
+
+test_decomposability = true
+if test_decomposability
+    # Sanity check that the symmetric matrix that we extract still decomposes (if we're
+    # okay with losing symmetry)
+    hess_submatrix = kkt_matrix[nn_kktcols, nn_kktcols]
+    # This is wrong. If I'm going to make symmetric, avoid double-counting diagonal.
+    #hess_submatrix = hess_submatrix + hess_submatrix'
+    jac_submatrix = kkt_matrix[nn_kktrows, nn_kktcols]
+    lefthalf = vcat(hess_submatrix, jac_submatrix)
+    # This was for a sanity check without the Hessian block. Should have same
+    # number of pos/neg eval. (We should have this with the Hessian block too...)
+    #lefthalf = vcat(SparseArrays.spzeros(schur_dim, schur_dim), jac_submatrix)
+    #righthalf = vcat(jac_submatrix', SparseArrays.spzeros(schur_dim, schur_dim))
+    righthalf = SparseArrays.spzeros(2*schur_dim, schur_dim)
+    pivot_noreg = hcat(lefthalf, righthalf)
+    # TODO: If I'm going to block triangularize, I need to construct the full matrix
+    #roworder, colorder = block_triangularize(sym)
+    #sym_bt = sym[roworder, colorder]
+    #igraph = MPIN.IncidenceGraphInterface(sym)
+    #blocks = MPIN.block_triangularize(igraph)
+    # I'll check the inertia of this matrix (without δ) because I can block-triangularize
+    # it as a sanity check
+    ma27_schur_noreg = MadNLPHSL.Ma27Solver(pivot_noreg)
+    MadNLP.factorize!(ma27_schur_noreg)
+    inertia = MadNLP.inertia(ma27_schur_noreg)
+    # NOTE: MadNLP's documentation of `inertia` is wrong.
+    println("Inertia of the linear system with no regularization nonzeros")
+    println("(pos, zero, neg) = $inertia")
+    # This system has the same number of positive as negative eigenvalues, and no
+    # zero eigenvalues.
+end
 
 #import LinearAlgebra
 #for (i, b) in enumerate(blocks)
@@ -180,18 +208,18 @@ println("(pos, zero, neg) = $inertia")
 #    #SparseArrays.lu(sm)
 #end
 
-factorize = false
+opt = SchurComplementOptions(; pivot_indices = sym_indices)
+linear_solver = SchurComplementSolver(
+    kkt_matrix;
+    opt = opt,
+)
+factorize = true
 if factorize
-    opt = SchurComplementOptions(; indices = indices)
-    linear_solver = SchurComplementSolver(
-        kkt_matrix;
-        opt = opt,
-    )
     MadNLP.factorize!(linear_solver)
     inertia = MadNLP.inertia(linear_solver)
     println("Inertia according to SchurComplementSolver")
     println("(pos, zero, neg) = $inertia")
     # Intertia is (81, 0, 57). This looks correct based on our numbers of vars/cons.
     d = copy(rhs)
-    MadNLP.solve!(linear_solver, d)
+    #MadNLP.solve!(linear_solver, d)
 end
