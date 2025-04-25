@@ -20,6 +20,31 @@ function block_triangularize(matrix::SparseArrays.SparseMatrixCSC)
     return roworder, colorder
 end
 
+function update_kkt!(kkt::MadNLP.AbstractKKTSystem, nlp::NLPModels.AbstractNLPModel)
+    # Need to update:
+    # - Hessian
+    # - Jacobian
+    # - Regularization (set to zero? Or leave as default?)
+    # - Σ_x, Σ_s (each for upper and lower bounds)
+    # For now, I'd like to do the minimum necessary to give me a nonsingular KKT matrix
+    hess_values = MadNLP.get_hessian(kkt)
+    n = NLPModels.get_nvar(nlp)
+    m = NLPModels.get_ncon(nlp)
+    #x = NLPModels.get_x0(nlp)
+    x = ones(n)
+    λ = ones(m)
+
+    NLPModels.hess_coord!(nlp, x, λ, hess_values)
+
+    jac_values = MadNLP.get_jacobian(kkt)
+    NLPModels.jac_coord!(nlp, x, jac_values)
+
+    #kkt.reg = 0.0
+    #kkt.pr_diag = 0.0
+    #kkt.du_diag = 0.0
+    return
+end
+
 optimizer = JuMP.optimizer_with_attributes(
     MadNLP.Optimizer,
     "tol" => 1e-6,
@@ -94,16 +119,20 @@ kkt = MadNLP.create_kkt_system(
     LinearSolver,
 )
 MadNLP.initialize!(kkt)
+# I think this happens after initialize?
+update_kkt!(kkt, nlp)
+MadNLP.build_kkt!(kkt)
 kkt_matrix = MadNLP.get_kkt(kkt)
+# TODO: Now we need to update the kkt_matrix
 
 # Extract the Jacobian submatrix we want to exploit.
 submatrix = kkt_matrix[nn_kktrows, nn_kktcols]
-display(submatrix)
+#display(submatrix)
 igraph = MPIN.IncidenceGraphInterface(submatrix)
 blocks = MPIN.block_triangularize(igraph)
 rows = vcat([b[1] for b in blocks]...)
 cols = vcat([b[2] for b in blocks]...)
-display(submatrix[rows, cols])
+#display(submatrix[rows, cols])
 
 # Check eigenvalues of blocks in the NN's Jacobian
 #import LinearAlgebra
@@ -140,10 +169,12 @@ d_nncons_ma27 = d_ma27[nn_kktrows]
 
 sym_indices = Vector{Int32}(vcat(nn_kktcols, nn_kktrows))
 sym_submatrix = kkt_matrix[sym_indices, sym_indices]
-sym_full = sym_submatrix + sym_submatrix'
-roworder, colorder = block_triangularize(sym_full)
+# NOTE: With nonzero values not populated, adding these two matrices
+# eliminates zero entries, and we can't compute a maximum matching.
+#sym_full = sym_submatrix + sym_submatrix'
+#roworder, colorder = block_triangularize(sym_full)
 # Due to the δg regularization block, this matrix doesn't decompose.
-sym_full_bt = sym_full[roworder, colorder]
+#sym_full_bt = sym_full[roworder, colorder]
 
 ma27_schur = MadNLPHSL.Ma27Solver(sym_submatrix)
 MadNLP.factorize!(ma27_schur)
@@ -196,6 +227,16 @@ if test_decomposability
     # zero eigenvalues.
 end
 
+#println("Pivot matrix, extracted directly from KKT:")
+#display(sym_submatrix)
+#display(Matrix(sym_submatrix))
+#println("Pivot matrix, constructed manually from submatrices, without regularization:")
+#display(pivot_noreg)
+#display(Matrix(pivot_noreg))
+#
+#println("Sparse matrices equal: $(sym_submatrix == pivot_noreg)")
+#println("Dense matrices equal: $(Matrix(sym_submatrix) == Matrix(pivot_noreg))")
+
 #import LinearAlgebra
 #for (i, b) in enumerate(blocks)
 #    println("Block $i")
@@ -209,17 +250,26 @@ end
 #end
 
 opt = SchurComplementOptions(; pivot_indices = sym_indices)
-linear_solver = SchurComplementSolver(
-    kkt_matrix;
-    opt = opt,
-)
 factorize = true
 if factorize
+    linear_solver = SchurComplementSolver(
+        kkt_matrix;
+        opt = opt,
+    )
     MadNLP.factorize!(linear_solver)
     inertia = MadNLP.inertia(linear_solver)
     println("Inertia according to SchurComplementSolver")
     println("(pos, zero, neg) = $inertia")
     # Intertia is (81, 0, 57). This looks correct based on our numbers of vars/cons.
     d = copy(rhs)
-    #MadNLP.solve!(linear_solver, d)
+    display(d)
+    MadNLP.solve!(linear_solver, d)
+
+    dx_ma27 = d_ma27[sym_indices]
+
+    # Extract coordinates in the reduced system
+    # Note that these are primal-dual indices
+    dx = d[sym_indices]
+
+    dx_diff = dx - dx_ma27
 end

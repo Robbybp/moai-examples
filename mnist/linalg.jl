@@ -21,6 +21,8 @@ mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions
     SchurComplementOptions(;
         #MadNLPHSL.Ma27Solver,
         #MadNLPHSL.Ma27Solver,
+        # TODO: Make pivot_indices required. We can't instantiate with an empty
+        # pivot matrix as our MA27 wrapper will error.
         pivot_indices = [],
     ) = new{eltype(pivot_indices)}(
         MadNLPHSL.Ma27Solver,
@@ -201,19 +203,44 @@ end
 function MadNLP.solve!(solver::SchurComplementSolver{T,INT}, rhs::Vector{T}) where {T,INT}
     # Partition rhs according to Schur complement coords
     dim = solver.csc.n
-    row_indices = [i for (i, j) in solver.indices]
-    col_indices = [j for (i, j) in solver.indices]
-    sym_indices = vcat(col_indices, row_indices)
-    sym_index_set = Set(sym_indices)
-    reduced_indices = filter(i -> !(i in sym_index_set), 1:dim)
-    rhs_reduced = rhs[reduced_indices]
-    rhs_schur = rhs[sym_indices]
-    # TODO: Compute the correct RHSs
+    pivot_dim = length(solver.pivot_indices)
+    index_set = Set(solver.pivot_indices)
+    reduced_indices = filter(i -> !(i in index_set), 1:dim)
+    orig_rhs_reduced = rhs[reduced_indices]
+    orig_rhs_pivot = rhs[solver.pivot_indices]
+
+    display(orig_rhs_reduced)
+    # Original system:
+    #      R  P
+    #      -----
+    # R) | A B^T | (x) = (r_x)
+    # P) | B  C  | (y) = (r_y)
+    #
+    # Bx + Cy = r_y => y = C^-1 ( r_y - Bx )
+    # Ax + B^Ty = r_x
+    # => Ax + B^T C^-1 ( r_y - Bx ) = r_x
+    # => ( A - B^T C^-1 B ) x = r_x - B^T C^-1 r_y
+
+    # TODO: Cache these submatrices?
+    P = solver.pivot_indices
+    R = reduced_indices
+    A = solver.csc[R, R]
+    B = solver.csc[P, R] + solver.csc[R, P]'
+
+    temp = copy(orig_rhs_pivot)
+    MadNLP.solve!(solver.schur_solver, temp)
+    println("C^-1 r_x")
+    display(temp)
+    rhs_reduced = orig_rhs_reduced - B' * temp
+
+    display(rhs_reduced)
 
     MadNLP.solve!(solver.reduced_solver, rhs_reduced)
-    MadNLP.solve!(solver.schur_solver, rhs_schur)
-    rhs[reduced_indices] .= rhs_reduced
-    rhs[sym_indices] .= rhs_schur
+    # NOTE: We're not solving with the correct RHS here
+    MadNLP.solve!(solver.schur_solver, orig_rhs_pivot)
+    rhs[R] .= rhs_reduced
+    # NOTE: We're not updating with the correct values here
+    rhs[P] .= orig_rhs_pivot
     return rhs
 end
 
