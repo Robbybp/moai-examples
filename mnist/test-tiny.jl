@@ -8,6 +8,7 @@ import NLPModels, NLPModelsJuMP
 import Random
 import SparseArrays
 
+include("linalg.jl")
 include("nlpmodels.jl")
 
 function make_model()
@@ -21,10 +22,10 @@ function make_model()
     JuMP.set_lower_bound(y[2], 0.0)
     JuMP.set_upper_bound(x[1], 10.0)
     JuMP.set_upper_bound(y[1], 12.0)
-    JuMP.@constraint(m, eq1, x[1] + y[1] + x[2] == 10.0)
+    JuMP.@constraint(m, eq1, x[1]^1.1 + y[1]^1.1 + x[2] == 10.0)
     JuMP.@constraint(m, eq2, 2*x[2] + y[2] - x[3] == 12.0)
-    JuMP.@constraint(m, eq3, y[1] - y[2] == 3.0)
-    JuMP.@constraint(m, eq4, y[2] + 2*y[2] - x[3] == 7.0)
+    JuMP.@constraint(m, eq3, y[1]^1.1 - y[2] == 3.0)
+    JuMP.@constraint(m, eq4, y[2]^1.1 + 2*y[2]^1.1 - x[3] == 7.0)
     JuMP.@constraint(m, ineq1, sum(x) + sum(y) <= 20.0)
     JuMP.@objective(m, Min, sum(x.^2) + sum(y.^2))
     return m
@@ -57,7 +58,7 @@ end
 
 function main()
     m = make_model()
-    
+
     optimize = false
     if optimize
         JuMP.set_optimizer(m, Ipopt.Optimizer)
@@ -81,9 +82,14 @@ function main()
     ind_cons = MadNLP.get_index_constraints(nlp)
     nslack = length(ind_cons.ind_ineq)
 
+    println("nvar   = $nvar")
+    println("ncon   = $ncon")
+    println("nslack = $nslack")
+
     pivot_vindices = vindices
     # Apply offset used in KKT matrix
     pivot_cindices = cindices .+ (nvar + nslack)
+    pivot_indices = vcat(pivot_vindices, pivot_cindices)
 
     cb = MadNLP.create_callback(MadNLP.SparseCallback, nlp)
     kkt_system = MadNLP.create_kkt_system(
@@ -98,7 +104,31 @@ function main()
     kkt_matrix = MadNLP.get_kkt(kkt_system)
     display(kkt_matrix)
 
+    pivot_indices = convert(Vector{Int32}, pivot_indices)
+    opt = SchurComplementOptions(; pivot_indices = pivot_indices)
+    schur_solver = SchurComplementSolver(kkt_matrix; opt)
+    ma27 = MadNLPHSL.Ma27Solver(kkt_matrix)
+
     # Have the KKT matrix. Now I can start testing some things...
+    MadNLP.factorize!(schur_solver)
+    MadNLP.factorize!(ma27)
+
+    schur_inertia = MadNLP.inertia(schur_solver)
+    ma27_inertia = MadNLP.inertia(ma27)
+    println("Schur inertia: $schur_inertia")
+    println("MA27 inertia:  $ma27_inertia")
+
+    kkt_dim = nvar + ncon + nslack
+    rhs = ones(kkt_dim)
+    d_ma27 = copy(rhs)
+    d_schur = copy(rhs)
+    MadNLP.solve!(schur_solver, d_schur)
+    MadNLP.solve!(ma27, d_ma27)
+
+    println("d_schur")
+    println(d_schur)
+    println("d_ma27")
+    println(d_ma27)
 end
 
 main()
