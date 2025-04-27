@@ -175,6 +175,8 @@ sym_submatrix = kkt_matrix[sym_indices, sym_indices]
 #roworder, colorder = block_triangularize(sym_full)
 # Due to the δg regularization block, this matrix doesn't decompose.
 #sym_full_bt = sym_full[roworder, colorder]
+sym_index_set = Set(sym_indices)
+reduced_indices = [i for i in 1:kkt_dim if !(i in sym_index_set)]
 
 ma27_schur = MadNLPHSL.Ma27Solver(sym_submatrix)
 MadNLP.factorize!(ma27_schur)
@@ -184,8 +186,6 @@ println("(pos, zero, neg) = $inertia")
 
 test_permuted = false
 if test_permuted
-    sym_index_set = Set(sym_indices)
-    reduced_indices = [i for i in 1:kkt_dim if !(i in sym_index_set)]
     permutation_order = vcat(reduced_indices, sym_indices) 
     permuted_kkt_matrix = kkt_matrix[permutation_order, permutation_order]
     ma27_permuted = MadNLPHSL.Ma27Solver(permuted_kkt_matrix)
@@ -265,11 +265,12 @@ if factorize
     display(d)
     MadNLP.solve!(linear_solver, d)
 
-    dx_ma27 = d_ma27[sym_indices]
+    dx_ma27 = d_ma27[reduced_indices]
 
     # Extract coordinates in the reduced system
     # Note that these are primal-dual indices
-    dx = d[sym_indices]
+    dx = d[reduced_indices]
 
     dx_diff = dx - dx_ma27
+    d_diff = d - d_ma27
 end

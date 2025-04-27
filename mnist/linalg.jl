@@ -146,10 +146,20 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     sol = copy(B_dense)
     println("Reduced dim = $reduced_dim")
     for j in 1:reduced_dim
-        MadNLP.solve!(solver.schur_solver, sol[:, j])
+        temp = sol[:, j]
+        # view(sol, :, j) isn't working here, even though it seems like it should...
+        MadNLP.solve!(solver.schur_solver, temp)
+        sol[:, j] = temp
     end
+    println("B:")
+    display(B)
+    println("C:")
+    display(solver.schur_solver.csc)
+    term2 = B' * SparseArrays.sparse(sol)
+    println("B' C^-1 B")
+    display(term2)
     # The nonzero storage pattern here is not consistent.
-    schur_complement = A - LinearAlgebra.tril(B' * SparseArrays.sparse(sol))
+    schur_complement = A - LinearAlgebra.tril(term2)
     schur_lookup = Dict((i, j) => v for (i, j, v) in zip(SparseArrays.findnz(schur_complement)...))
 
     #println("Computed Schur complement:")
@@ -237,10 +247,14 @@ function MadNLP.solve!(solver::SchurComplementSolver{T,INT}, rhs::Vector{T}) whe
 
     MadNLP.solve!(solver.reduced_solver, rhs_reduced)
     # NOTE: We're not solving with the correct RHS here
-    MadNLP.solve!(solver.schur_solver, orig_rhs_pivot)
+    # rhs_reduced stores the reduced-space solution at this point
+    rhs_pivot = orig_rhs_pivot - B * rhs_reduced
+    MadNLP.solve!(solver.schur_solver, rhs_pivot)
+    #dummy_rhs = zeros(pivot_dim)
+    #MadNLP.solve!(solver.schur_solver, dummy_rhs)
     rhs[R] .= rhs_reduced
     # NOTE: We're not updating with the correct values here
-    rhs[P] .= orig_rhs_pivot
+    rhs[P] .= rhs_pivot
     return rhs
 end
 

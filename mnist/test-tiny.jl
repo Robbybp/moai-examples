@@ -22,6 +22,10 @@ function make_model()
     JuMP.set_lower_bound(y[2], 0.0)
     JuMP.set_upper_bound(x[1], 10.0)
     JuMP.set_upper_bound(y[1], 12.0)
+    #JuMP.@constraint(m, eq1, x[1] + y[1] + x[2] == 10.0)
+    #JuMP.@constraint(m, eq2, 2*x[2] + y[2] - x[3] == 12.0)
+    #JuMP.@constraint(m, eq3, y[1] - y[2] == 3.0)
+    #JuMP.@constraint(m, eq4, y[2] + 2*y[2] - x[3] == 7.0)
     JuMP.@constraint(m, eq1, x[1]^1.1 + y[1]^1.1 + x[2] == 10.0)
     JuMP.@constraint(m, eq2, 2*x[2] + y[2] - x[3] == 12.0)
     JuMP.@constraint(m, eq3, y[1]^1.1 - y[2] == 3.0)
@@ -56,7 +60,7 @@ function update_kkt!(kkt::MadNLP.AbstractKKTSystem, nlp::NLPModels.AbstractNLPMo
     return
 end
 
-function main()
+#function main()
     m = make_model()
 
     optimize = false
@@ -75,12 +79,13 @@ function main()
     varorder, conorder = get_var_con_order(m)
     var_idx_map = Dict(var => i for (i, var) in enumerate(varorder))
     con_idx_map = Dict(con => i for (i, con) in enumerate(conorder))
-    vindices = [var_idx_map[v] for v in varorder]
-    cindices = [con_idx_map[c] for c in conorder]
+    vindices = [var_idx_map[v] for v in pivot_vars]
+    cindices = [con_idx_map[c] for c in pivot_cons]
     nvar = length(varorder)
     ncon = length(conorder)
     ind_cons = MadNLP.get_index_constraints(nlp)
     nslack = length(ind_cons.ind_ineq)
+    kkt_dim = nvar + ncon + nslack
 
     println("nvar   = $nvar")
     println("ncon   = $ncon")
@@ -104,7 +109,11 @@ function main()
     kkt_matrix = MadNLP.get_kkt(kkt_system)
     display(kkt_matrix)
 
+    println("Constructing SchurComplementSolver with pivot indices:")
+    println("$pivot_indices")
     pivot_indices = convert(Vector{Int32}, pivot_indices)
+    pivot_index_set = Set(pivot_indices)
+    reduced_indices = filter(x -> !(x in pivot_index_set), 1:kkt_dim)
     opt = SchurComplementOptions(; pivot_indices = pivot_indices)
     schur_solver = SchurComplementSolver(kkt_matrix; opt)
     ma27 = MadNLPHSL.Ma27Solver(kkt_matrix)
@@ -118,7 +127,6 @@ function main()
     println("Schur inertia: $schur_inertia")
     println("MA27 inertia:  $ma27_inertia")
 
-    kkt_dim = nvar + ncon + nslack
     rhs = ones(kkt_dim)
     d_ma27 = copy(rhs)
     d_schur = copy(rhs)
@@ -129,6 +137,11 @@ function main()
     println(d_schur)
     println("d_ma27")
     println(d_ma27)
-end
 
-main()
+    println("d_schur[reduced_indices]")
+    println(d_schur[reduced_indices])
+    println("d_ma27[reduced_indices]")
+    println(d_ma27[reduced_indices])
+#end
+#
+#main()

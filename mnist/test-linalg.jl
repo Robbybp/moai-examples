@@ -73,6 +73,7 @@ inertia = MadNLP.inertia(kkt.linear_solver)
 b = ones(size(kkt_matrix)[1])
 x = copy(b)
 MadNLP.solve!(kkt.linear_solver, x)
+x_ma27 = x
 
 # This is basically the workflow I need to go through.
 # But how does this actually happen inside of MadNLP?
@@ -85,6 +86,8 @@ MadNLP.solve!(kkt.linear_solver, x)
 
 include("formulation.jl")
 vars, cons = get_vars_cons(formulation)
+# TODO: Map these vars/cons to indices, apply offset, and provide these
+# indices to SchurComplementOptions.
 
 # linear_solver is constructed by KKTSystem?
 # presumably I can use default_options? Or just pass this info in as
@@ -108,3 +111,5 @@ x = copy(b)
 println("Running with $(MadNLP.introduce(linear_solver))")
 MadNLP.factorize!(linear_solver)
 MadNLP.solve!(linear_solver, x)
+
+d_diff = x - x_ma27
