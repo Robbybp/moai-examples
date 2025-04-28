@@ -20,45 +20,14 @@ function block_triangularize(matrix::SparseArrays.SparseMatrixCSC)
     return roworder, colorder
 end
 
-function update_kkt!(
-    kkt::MadNLP.AbstractKKTSystem,
-    nlp::NLPModels.AbstractNLPModel;
-    x = nothing,
-)
-    # Need to update:
-    # - Hessian
-    # - Jacobian
-    # - Regularization (set to zero? Or leave as default?)
-    # - Σ_x, Σ_s (each for upper and lower bounds)
-    # For now, I'd like to do the minimum necessary to give me a nonsingular KKT matrix
-    hess_values = MadNLP.get_hessian(kkt)
-    n = NLPModels.get_nvar(nlp)
-    m = NLPModels.get_ncon(nlp)
-    #x = NLPModels.get_x0(nlp)
-    if x === nothing
-        x = ones(n)
-    end
-    λ = ones(m)
-
-    NLPModels.hess_coord!(nlp, x, λ, hess_values)
-
-    jac_values = MadNLP.get_jacobian(kkt)
-    NLPModels.jac_coord!(nlp, x, jac_values)
-
-    #kkt.reg = 0.0
-    #kkt.pr_diag = 0.0
-    #kkt.du_diag = 0.0
-    return
-end
-
 optimizer = JuMP.optimizer_with_attributes(
     MadNLP.Optimizer,
     "tol" => 1e-6,
     "linear_solver" => MadNLPHSL.Ma27Solver,
 )
 
-include("small-model.jl")
-m, formulation = make_small_model()
+include("models.jl")
+m, formulation = make_small_nn_model()
 include("linalg.jl")
 
 solve = false

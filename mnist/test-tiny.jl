@@ -10,65 +10,10 @@ import SparseArrays
 
 include("linalg.jl")
 include("nlpmodels.jl")
-
-function make_model()
-    m = JuMP.Model()
-    JuMP.@variable(m, x[1:3], start = 1.0)
-    JuMP.@variable(m, y[1:2], start = 1.0)
-    JuMP.set_lower_bound(x[1], 0.0)
-    JuMP.set_lower_bound(x[2], 0.0)
-    JuMP.set_lower_bound(x[3], -2.0)
-    JuMP.set_lower_bound(y[1], 0.0)
-    JuMP.set_lower_bound(y[2], 0.0)
-    JuMP.set_upper_bound(x[1], 10.0)
-    JuMP.set_upper_bound(y[1], 12.0)
-    #JuMP.@constraint(m, eq1, x[1] + y[1] + x[2] == 10.0)
-    #JuMP.@constraint(m, eq2, 2*x[2] + y[2] - x[3] == 12.0)
-    #JuMP.@constraint(m, eq3, y[1] - y[2] == 3.0)
-    #JuMP.@constraint(m, eq4, y[2] + 2*y[2] - x[3] == 7.0)
-    JuMP.@constraint(m, eq1, x[1]^1.1 + y[1]^1.1 + x[2] == 10.0)
-    JuMP.@constraint(m, eq2, 2*x[2] + y[2] - x[3] == 12.0)
-    JuMP.@constraint(m, eq3, y[1]^1.1 - y[2] == 3.0)
-    JuMP.@constraint(m, eq4, y[2]^1.1 + 2*y[2]^1.1 - x[3] == 7.0)
-    JuMP.@constraint(m, ineq1, sum(x) + sum(y) <= 20.0)
-    JuMP.@objective(m, Min, sum(x.^2) + sum(y.^2))
-    return m
-end
-
-function update_kkt!(
-    kkt::MadNLP.AbstractKKTSystem,
-    nlp::NLPModels.AbstractNLPModel;
-    x = nothing,
-)
-    # Need to update:
-    # - Hessian
-    # - Jacobian
-    # - Regularization (set to zero? Or leave as default?)
-    # - Σ_x, Σ_s (each for upper and lower bounds)
-    # For now, I'd like to do the minimum necessary to give me a nonsingular KKT matrix
-    hess_values = MadNLP.get_hessian(kkt)
-    n = NLPModels.get_nvar(nlp)
-    m = NLPModels.get_ncon(nlp)
-    #x = NLPModels.get_x0(nlp)
-    #x = ones(n)
-    if x === nothing
-        x = ones(n)
-    end
-    λ = ones(m)
-
-    NLPModels.hess_coord!(nlp, x, λ, hess_values)
-
-    jac_values = MadNLP.get_jacobian(kkt)
-    NLPModels.jac_coord!(nlp, x, jac_values)
-
-    #kkt.reg = 0.0
-    #kkt.pr_diag = 0.0
-    #kkt.du_diag = 0.0
-    return
-end
+include("models.jl")
 
 #function main()
-    m = make_model()
+    m = make_tiny_model()
 
     optimize = false
     if optimize
