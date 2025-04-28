@@ -35,7 +35,11 @@ function make_model()
     return m
 end
 
-function update_kkt!(kkt::MadNLP.AbstractKKTSystem, nlp::NLPModels.AbstractNLPModel)
+function update_kkt!(
+    kkt::MadNLP.AbstractKKTSystem,
+    nlp::NLPModels.AbstractNLPModel;
+    x = nothing,
+)
     # Need to update:
     # - Hessian
     # - Jacobian
@@ -46,7 +50,10 @@ function update_kkt!(kkt::MadNLP.AbstractKKTSystem, nlp::NLPModels.AbstractNLPMo
     n = NLPModels.get_nvar(nlp)
     m = NLPModels.get_ncon(nlp)
     #x = NLPModels.get_x0(nlp)
-    x = ones(n)
+    #x = ones(n)
+    if x === nothing
+        x = ones(n)
+    end
     λ = ones(m)
 
     NLPModels.hess_coord!(nlp, x, λ, hess_values)
@@ -142,6 +149,35 @@ end
     println(d_schur[reduced_indices])
     println("d_ma27[reduced_indices]")
     println(d_ma27[reduced_indices])
+
+    display(schur_solver.csc)
+    Random.seed!(513)
+    for i in 1:10
+        global rhs = rand(kkt_dim)
+        x = rand(nvar)
+        update_kkt!(kkt_system, nlp; x)
+        # I think this is necessary...
+        MadNLP.build_kkt!(kkt_system)
+        #kkt_matrix = MadNLP.get_kkt_matrix(kkt_system)
+
+        #display(schur_solver.csc)
+        ## Reduced solver's matrix has not been updated
+        #display(schur_solver.reduced_solver.csc)
+        #display(schur_solver.schur_solver.csc)
+
+        # We should be able to factorize and solve with the same linear solvers
+        global d = copy(rhs)
+        global d_ma27 = copy(rhs)
+        MadNLP.factorize!(schur_solver)
+        MadNLP.factorize!(ma27)
+        global schur_inertia = MadNLP.inertia(schur_solver)
+        global ma27_inertia = MadNLP.inertia(ma27)
+        MadNLP.solve!(schur_solver, d)
+        MadNLP.solve!(ma27, d_ma27)
+        diff = abs.(d - d_ma27)
+        maxdiff = maximum(diff)
+        println("i = $i, ||ϵ|| = $maxdiff")
+    end
 #end
 #
 #main()

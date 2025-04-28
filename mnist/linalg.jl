@@ -72,6 +72,9 @@ function SchurComplementSolver(
 
     # For now, the reduced matrix is dense. If we exploit sparsity, we will need
     # to consider the sparsity structure here.
+    # 
+    # This matrix is recomputed every time we factorize, so we won't need to
+    # update it explicitly.
     I = IntType[i for i in 1:reduced_dim for j in 1:reduced_dim]
     J = IntType[j for i in 1:reduced_dim for j in 1:reduced_dim]
     V = FloatType[0.0 for _ in I]
@@ -85,6 +88,26 @@ function SchurComplementSolver(
     #
     # Extracting these indices gives us the lower triangle of this matrix, which
     # is exactly what we want.
+    remap = zeros(csc.n)
+    for (i, idx) in enumerate(pivot_indices)
+        remap[idx] = i
+    end
+    pivot_index_set = Set(pivot_indices)
+    colptr = csc.colptr
+    col = [j for j in 1:csc.m for _ in colptr[j]:(colptr[j+1]-1)]
+    row = csc.rowval
+    val = csc.nzval
+
+    nnz = length(csc.nzval)
+    pivot_nzs = filter(i->(row[i] in pivot_index_set && col[i] in pivot_index_set), 1:nnz)
+    # Filter nonzeros to only contain the pivot submatrix
+    row = row[pivot_nzs]
+    col = col[pivot_nzs]
+    val = val[pivot_nzs]
+    row = remap[row]
+    col = remap[col]
+    # This doesn't necessarily guarantee the order of nzvals either...
+    #pivot_matrix = SparseArrays.sparse(row, col, val)
     pivot_matrix = csc[pivot_indices, pivot_indices]
     # TODO: Allow passing options to subsolver
     reduced_solver = ReducedSolver(reduced_matrix; logger)
@@ -111,6 +134,18 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     #   that uses it.
     # - To compute the reduced matrix, we will extract coordinates directly from
     #   the original matrix, csc, which have been updated.
+
+    # Update nonzero values in the pivot solver
+    #pivot_index_set = Set(solver.pivot_indices)
+    #colptr = solver.csc.colptr
+    #col = [j for j in 1:solver.csc.m for _ in colptr[j]:(colptr[j+1]-1)]
+    #@assert length(col) == length(solver.csc.rowval)
+    #nnz = length(solver.csc.nzval)
+    #pivot_nzs = filter(
+    #    i->(solver.csc.rowval[i] in pivot_index_set && col[i] in pivot_index_set),
+    #    1:nnz,
+    #)
+    #solver.schur_solver.csc.nzval[:] = solver.csc.nzval[pivot_nzs]
 
     MadNLP.factorize!(solver.schur_solver)
 
@@ -144,20 +179,19 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
 
     B_dense = Matrix(B)
     sol = copy(B_dense)
-    println("Reduced dim = $reduced_dim")
     for j in 1:reduced_dim
         temp = sol[:, j]
         # view(sol, :, j) isn't working here, even though it seems like it should...
         MadNLP.solve!(solver.schur_solver, temp)
         sol[:, j] = temp
     end
-    println("B:")
-    display(B)
-    println("C:")
-    display(solver.schur_solver.csc)
+    #println("B:")
+    #display(B)
+    #println("C:")
+    #display(solver.schur_solver.csc)
     term2 = B' * SparseArrays.sparse(sol)
-    println("B' C^-1 B")
-    display(term2)
+    #println("B' C^-1 B")
+    #display(term2)
     # The nonzero storage pattern here is not consistent.
     schur_complement = A - LinearAlgebra.tril(term2)
     schur_lookup = Dict((i, j) => v for (i, j, v) in zip(SparseArrays.findnz(schur_complement)...))
@@ -197,7 +231,6 @@ end
 function MadNLP.inertia(solver::SchurComplementSolver)
     reduced_inertia = MadNLP.inertia(solver.reduced_solver)
     pos, zero, neg = reduced_inertia
-    println("Reduced system: (pos, zero, neg) = ($pos, $zero, $neg)")
     # We should be able to prove that the Schur complement system always has inertia
     # (dim, 0, dim). This is because it is decomposable.
     @assert length(solver.pivot_indices) % 2 == 0
@@ -219,7 +252,7 @@ function MadNLP.solve!(solver::SchurComplementSolver{T,INT}, rhs::Vector{T}) whe
     orig_rhs_reduced = rhs[reduced_indices]
     orig_rhs_pivot = rhs[solver.pivot_indices]
 
-    display(orig_rhs_reduced)
+    #display(orig_rhs_reduced)
     # Original system:
     #      R  P
     #      -----
@@ -239,11 +272,9 @@ function MadNLP.solve!(solver::SchurComplementSolver{T,INT}, rhs::Vector{T}) whe
 
     temp = copy(orig_rhs_pivot)
     MadNLP.solve!(solver.schur_solver, temp)
-    println("C^-1 r_x")
-    display(temp)
+    #println("C^-1 r_x")
+    #display(temp)
     rhs_reduced = orig_rhs_reduced - B' * temp
-
-    display(rhs_reduced)
 
     MadNLP.solve!(solver.reduced_solver, rhs_reduced)
     # NOTE: We're not solving with the correct RHS here

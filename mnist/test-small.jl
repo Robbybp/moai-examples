@@ -20,7 +20,11 @@ function block_triangularize(matrix::SparseArrays.SparseMatrixCSC)
     return roworder, colorder
 end
 
-function update_kkt!(kkt::MadNLP.AbstractKKTSystem, nlp::NLPModels.AbstractNLPModel)
+function update_kkt!(
+    kkt::MadNLP.AbstractKKTSystem,
+    nlp::NLPModels.AbstractNLPModel;
+    x = nothing,
+)
     # Need to update:
     # - Hessian
     # - Jacobian
@@ -31,7 +35,9 @@ function update_kkt!(kkt::MadNLP.AbstractKKTSystem, nlp::NLPModels.AbstractNLPMo
     n = NLPModels.get_nvar(nlp)
     m = NLPModels.get_ncon(nlp)
     #x = NLPModels.get_x0(nlp)
-    x = ones(n)
+    if x === nothing
+        x = ones(n)
+    end
     λ = ones(m)
 
     NLPModels.hess_coord!(nlp, x, λ, hess_values)
@@ -262,7 +268,6 @@ if factorize
     println("(pos, zero, neg) = $inertia")
     # Intertia is (81, 0, 57). This looks correct based on our numbers of vars/cons.
     d = copy(rhs)
-    display(d)
     MadNLP.solve!(linear_solver, d)
 
     dx_ma27 = d_ma27[reduced_indices]
@@ -273,4 +278,35 @@ if factorize
 
     dx_diff = dx - dx_ma27
     d_diff = d - d_ma27
+
+    maxdiff = maximum(abs.(d_diff))
+    println("Diff at nominal point: $maxdiff")
 end
+
+#for i in 1:10
+#    global rhs = rand(kkt_dim)
+#    x = rand(nvar)
+#    update_kkt!(kkt, nlp; x)
+#    # I think this is necessary...
+#    MadNLP.build_kkt!(kkt)
+#    #kkt_matrix = MadNLP.get_kkt_matrix(kkt_system)
+#
+#    #display(schur_solver.csc)
+#    ## Reduced solver's matrix has not been updated
+#    #display(schur_solver.reduced_solver.csc)
+#    #display(schur_solver.schur_solver.csc)
+#
+#    # We should be able to factorize and solve with the same linear solvers
+#    global d = copy(rhs)
+#    global d_ma27 = copy(rhs)
+#    # Use linear_solver, which we created in the above if block
+#    MadNLP.factorize!(linear_solver)
+#    MadNLP.factorize!(ma27)
+#    global schur_inertia = MadNLP.inertia(linear_solver)
+#    global ma27_inertia = MadNLP.inertia(ma27)
+#    MadNLP.solve!(linear_solver, d)
+#    MadNLP.solve!(ma27, d_ma27)
+#    diff = abs.(d - d_ma27)
+#    maxdiff = maximum(diff)
+#    println("i = $i, Schur inertia = $schur_inertia, MA27 inertia = $ma27_inertia, ||ϵ|| = $maxdiff")
+#end
