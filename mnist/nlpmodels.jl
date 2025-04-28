@@ -59,3 +59,21 @@ function get_var_con_order(
     con_indices = vcat(con_indices...)
     return var_indices, con_indices
 end
+
+function get_kkt_indices(model::JuMP.Model, variables::Vector, constraints::Vector)
+    nlp = NLPModelsJuMP.MathOptNLPModel(model)
+    varorder, conorder = get_var_con_order(model)
+    var_idx_map = Dict(var => i for (i, var) in enumerate(varorder))
+    con_idx_map = Dict(con => i for (i, con) in enumerate(conorder))
+    vindices = [var_idx_map[v] for v in variables]
+    cindices = [con_idx_map[c] for c in constraints]
+    ind_cons = MadNLP.get_index_constraints(nlp)
+    nvar = length(varorder)
+    ncon = length(conorder)
+    nslack = length(ind_cons.ind_ineq)
+    kkt_dim = nvar + ncon + nslack
+    kkt_vindices = vindices
+    kkt_cindices = cindices .+ (nvar + nslack)
+    kkt_indices = vcat(kkt_vindices, kkt_cindices)
+    return kkt_indices
+end
