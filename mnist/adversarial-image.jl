@@ -19,6 +19,8 @@ import MLDatasets
 # - returns a matrix of the pixel values, along with the network's predictions?
 
 include("linalg.jl")
+include("formulation.jl")
+include("nlpmodels.jl")
 
 OPTIMIZER_LOOKUP = Dict(
     "ipopt" => Ipopt.Optimizer,
@@ -31,8 +33,8 @@ OPTIMIZER_ATTRIBUTES_LOOKUP = Dict(
         "print_user_options" => "yes",
         "print_timing_statistics" => "yes",
     ],
-    #"madnlp" => ["tol" => 1e-6, "linear_solver" => MadNLPHSL.Ma27Solver],
-    "madnlp" => ["tol" => 1e-6, "linear_solver" => SchurComplementSolver],
+    "madnlp" => ["tol" => 1e-6, "linear_solver" => MadNLPHSL.Ma27Solver],
+    #"madnlp" => ["tol" => 1e-6, "linear_solver" => SchurComplementSolver],
 )
 
 ADVERSARIAL_LABEL_LOOKUP = Dict(
@@ -124,6 +126,13 @@ function find_adversarial_image(
         OPTIMIZER_ATTRIBUTES_LOOKUP[optimizer_name]...,
     )
     JuMP.set_optimizer(m, optimizer)
+    if false && optimizer_name == "madnlp"
+        # TODO: Make linear solver and Schur decomposition a configurable option
+        variables, constraints = get_vars_cons(formulation)
+        pivot_indices = get_kkt_indices(m, variables, constraints)
+        JuMP.set_optimizer_attribute(m, "linear_solver", SchurComplementSolver)
+        JuMP.set_optimizer_attribute(m, "pivot_indices", pivot_indices)
+    end
     JuMP.optimize!(m)
 
     predicted_adversarial_output = JuMP.value.(y)
