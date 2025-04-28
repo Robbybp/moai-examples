@@ -3,6 +3,9 @@ import LinearAlgebra
 import MadNLP
 import MadNLPHSL
 
+# For some reason, we need to extend this method
+MadNLP.parse_option(::Any, vec::Vector) = vec
+
 # This seems not to work with a parameterized type?
 #@kwdef mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions where {INT}
 mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions
@@ -23,7 +26,7 @@ mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions
         #MadNLPHSL.Ma27Solver,
         # TODO: Make pivot_indices required. We can't instantiate with an empty
         # pivot matrix as our MA27 wrapper will error.
-        pivot_indices = [],
+        pivot_indices = Int32[],
     ) = new{eltype(pivot_indices)}(
         MadNLPHSL.Ma27Solver,
         MadNLPHSL.Ma27Solver,
@@ -93,22 +96,46 @@ function SchurComplementSolver(
         remap[idx] = i
     end
     pivot_index_set = Set(pivot_indices)
-    colptr = csc.colptr
-    col = [j for j in 1:csc.m for _ in colptr[j]:(colptr[j+1]-1)]
-    row = csc.rowval
-    val = csc.nzval
+    #col = [j for j in 1:csc.n for _ in colptr[j]:(colptr[j+1]-1)]
+    #row = csc.rowval
+    #val = csc.nzval
 
-    nnz = length(csc.nzval)
-    pivot_nzs = filter(i->(row[i] in pivot_index_set && col[i] in pivot_index_set), 1:nnz)
-    # Filter nonzeros to only contain the pivot submatrix
-    row = row[pivot_nzs]
-    col = col[pivot_nzs]
-    val = val[pivot_nzs]
-    row = remap[row]
-    col = remap[col]
+    colptr = IntType[1]
+    rowval = IntType[]
+    nzval = FloatType[]
+    for j in 1:csc.n # Columns
+        # This just compresses the columns. It doesn't permute them if that is necessary
+        if j in pivot_index_set
+            pivot_nzs = filter(k -> csc.rowval[k] in pivot_index_set, csc.colptr[j]:(csc.colptr[j+1]-1))
+            append!(rowval, remap[csc.rowval[pivot_nzs]])
+            append!(nzval, csc.nzval[pivot_nzs])
+            push!(colptr, colptr[end]+length(pivot_nzs))
+        end
+    end
+    @assert !any(rowval .== 0)
+
+    #nnz = length(csc.nzval)
+    #pivot_nzs = filter(i->(row[i] in pivot_index_set && col[i] in pivot_index_set), 1:nnz)
+    ## Filter nonzeros to only contain the pivot submatrix
+    #row = row[pivot_nzs]
+    #col = col[pivot_nzs]
+    #val = val[pivot_nzs]
+    #row = remap[row]
+    #col = remap[col]
     # This doesn't necessarily guarantee the order of nzvals either...
     #pivot_matrix = SparseArrays.sparse(row, col, val)
     pivot_matrix = csc[pivot_indices, pivot_indices]
+    #
+    # Need to construct CSC explicitly so nonzeros don't get permuted or combined
+    #pivot_matrix = SparseArrays.SparseMatrixCSC(
+    #    pivot_dim,
+    #    pivot_dim,
+    #    colptr,
+    #    rowval,
+    #    nzval,
+    #)
+    I, J, V = SparseArrays.findnz(pivot_matrix)
+    @assert all(I .>= J)
     # TODO: Allow passing options to subsolver
     reduced_solver = ReducedSolver(reduced_matrix; logger)
     schur_solver = SchurSolver(pivot_matrix; logger)
@@ -145,7 +172,8 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     #    i->(solver.csc.rowval[i] in pivot_index_set && col[i] in pivot_index_set),
     #    1:nnz,
     #)
-    #solver.schur_solver.csc.nzval[:] = solver.csc.nzval[pivot_nzs]
+
+    solver.schur_solver.csc.nzval[:] = solver.csc[solver.pivot_indices, solver.pivot_indices].nzval
 
     MadNLP.factorize!(solver.schur_solver)
 
@@ -287,6 +315,10 @@ function MadNLP.solve!(solver::SchurComplementSolver{T,INT}, rhs::Vector{T}) whe
     # NOTE: We're not updating with the correct values here
     rhs[P] .= rhs_pivot
     return rhs
+end
+
+function MadNLP.improve!(solver::SchurComplementSolver{T,INT}) where {T,INT}
+    return false
 end
 
 MadNLP.input_type(::Type{SchurComplementSolver}) = :csc
