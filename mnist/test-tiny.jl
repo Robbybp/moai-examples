@@ -13,7 +13,7 @@ include("nlpmodels.jl")
 include("models.jl")
 
 #function main()
-    m = make_tiny_model()
+    m, info = make_tiny_model()
 
     optimize = false
     if optimize

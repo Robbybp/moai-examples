@@ -1,6 +1,8 @@
 import JuMP
 import MathOptAI as MOAI
 
+include("formulation.jl")
+
 function update_kkt!(
     kkt::MadNLP.AbstractKKTSystem,
     nlp::NLPModels.AbstractNLPModel;
@@ -33,10 +35,16 @@ function update_kkt!(
     return
 end
 
-function make_small_nn_model(; relaxation_parameter = 1e-6)
+function make_small_nn_model(;
+    input_dim = 8,
+    hidden_dim = 16,
+    output_dim = 4,
+    relaxation_parameter = 1e-6,
+)
     m = JuMP.Model()
     JuMP.@variable(m, x[1:input_dim] >= 0)
 
+    # TODO: Avoid random numbers here
     A1 = rand(hidden_dim, input_dim)
     b1 = rand(hidden_dim)
     A2 = rand(output_dim, hidden_dim)
@@ -50,7 +58,21 @@ function make_small_nn_model(; relaxation_parameter = 1e-6)
     )
     y, formulation = MOAI.add_predictor(m, predictor, x)
     JuMP.@objective(m, Min, sum(x.^2) + sum(y.^2))
-    return m, formulation
+    variables, constraints = get_vars_cons(formulation)
+    return m, (; formulation, variables, constraints)
+end
+
+# This doesn't really work. We tend to converge infeasible...
+function get_small_nn_feasible_point(
+    model::JuMP.Model;
+    x = ones(length(model[:x])),
+)
+    JuMP.fix.(model[:x], x)
+    JuMP.set_optimizer(model, Ipopt.Optimizer)
+    JuMP.set_optimizer_attribute(model, "linear_solver", "ma27")
+    JuMP.optimize!(model)
+    solution = Dict(x => JuMP.value(x) for x in JuMP.all_variables(model))
+    return solution
 end
 
 function make_tiny_model()
@@ -74,5 +96,7 @@ function make_tiny_model()
     JuMP.@constraint(m, eq4, y[2]^1.1 + 2*y[2]^1.1 - x[3] == 7.0)
     JuMP.@constraint(m, ineq1, sum(x) + sum(y) <= 20.0)
     JuMP.@objective(m, Min, sum(x.^2) + sum(y.^2))
-    return m
+    variables = [y[1], y[2]]
+    constraints = [eq3, eq4]
+    return m, (; variables, constraints)
 end

@@ -8,9 +8,6 @@ import Random
 import SparseArrays
 
 Random.seed!(101)
-input_dim = 8
-hidden_dim = 16
-output_dim = 4
 
 function block_triangularize(matrix::SparseArrays.SparseMatrixCSC)
     igraph = MPIN.IncidenceGraphInterface(matrix)
@@ -27,7 +24,8 @@ optimizer = JuMP.optimizer_with_attributes(
 )
 
 include("models.jl")
-m, formulation = make_small_nn_model()
+m, info = make_small_nn_model()
+formulation = info.formulation
 include("linalg.jl")
 
 solve = false
