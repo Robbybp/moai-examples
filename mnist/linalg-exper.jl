@@ -7,6 +7,8 @@ import SparseArrays
 
 include("adversarial-image.jl")
 include("linalg.jl")
+include("formulation.jl")
+include("nlpmodels.jl")
 
 nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
 image_index = 7
@@ -84,8 +86,9 @@ x_ma27 = x
 # - Figure out what methods I need to call to actually use a custom linear
 #   solver during the solve.
 
-include("formulation.jl")
 vars, cons = get_vars_cons(formulation)
+pivot_indices = get_kkt_indices(m, vars, cons)
+pivot_indices = convert(Vector{Int32}, pivot_indices)
 # TODO: Map these vars/cons to indices, apply offset, and provide these
 # indices to SchurComplementOptions.
 
@@ -98,7 +101,7 @@ vars, cons = get_vars_cons(formulation)
 # Now I need to get these indices from my JuMP model.
 # - I will first need to know what coordinates they are in the NLPModel's Jacobian
 # - Then I will need to know what coordinates they are in the KKT matrix
-opt = SchurComplementOptions(; indices = Tuple{Int32,Int32}[(1,4), (2,5), (3,6)])
+opt = SchurComplementOptions(; pivot_indices)
 # This will be constructed as:
 linear_solver = SchurComplementSolver(
     kkt_matrix;
@@ -113,3 +116,5 @@ MadNLP.factorize!(linear_solver)
 MadNLP.solve!(linear_solver, x)
 
 d_diff = x - x_ma27
+maxdiff = maximum(abs.(d_diff))
+println("||ϵ|| = $maxdiff")

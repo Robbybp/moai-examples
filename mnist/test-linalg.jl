@@ -185,16 +185,18 @@ function test_nlp_solve_small_nn()
 end
 
 @testset begin
-    #test_factorize_nominal_tiny()
-    #test_factorize_nominal_small_nn()
-    #test_solve_nominal_tiny()
-    #test_solve_nominal_small_nn()
-    #test_solve_repeated_tiny()
+    test_factorize_nominal_tiny()
+    test_factorize_nominal_small_nn()
+    test_solve_nominal_tiny()
+    test_solve_nominal_small_nn()
+    test_solve_repeated_tiny()
 
     ## This test is very fragile. We frequently have a couple of samples
     ## where we don't match the two samples to tolerance. Using random
     ## numbers in (a) the model and (b) the evaluation points doesn't help either.
-    #test_solve_repeated_small_nn(; atol = 1e-4)
+    test_solve_repeated_small_nn(; atol = 1e-4)
+    # These tests don't actually check anything at this point. TODO: Check termination
+    # condition and solution.
     #test_nlp_solve_tiny()
-    test_nlp_solve_small_nn()
+    #test_nlp_solve_small_nn()
 end

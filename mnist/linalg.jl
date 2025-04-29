@@ -44,6 +44,41 @@ struct SchurComplementSolver{T,INT} <: MadNLP.AbstractLinearSolver{T}
     pivot_indices::Vector{INT}
 end
 
+function _sparse_schur(
+    csc::SparseArrays.SparseMatrixCSC,
+    pivot_indices::Vector;
+    linear_solver = nothing,
+)
+    dim = csc.n
+    pivot_dim = length(pivot_indices)
+    reduced_dim = dim - pivot_dim
+    pivot_index_set = Set(pivot_indices)
+    reduced_indices = filter(i -> !(i in pivot_index_set), 1:dim)
+    P = pivot_indices
+    R = reduced_indices
+    A = csc[R, R]
+    # We need the off-diagonal block in the *permuted* matrix.
+    # For entries with p<r in the original matrix, we must transpose the indices.
+    B = csc[P, R] + csc[R, P]'
+    C = csc[P, P]
+    B_dense = Matrix(B)
+    sol = copy(B_dense)
+    if linear_solver === nothing
+        linear_solver = MadNLPHSL.Ma27Solver(C)
+        MadNLP.factorize!(linear_solver)
+    end
+    for j in 1:reduced_dim
+        temp = sol[:, j]
+        # view(sol, :, j) isn't working here, even though it seems like it should...
+        MadNLP.solve!(linear_solver, temp)
+        sol[:, j] = temp
+    end
+    # Converting to sparse here removes explicit zeros
+    term2 = B' * SparseArrays.sparse(sol)
+    schur_complement = A - LinearAlgebra.tril(term2)
+    return schur_complement
+end
+
 function SchurComplementSolver(
     csc::SparseArrays.SparseMatrixCSC{T,INT};
     # TODO: Make this a SchurComplementOptions struct
@@ -114,6 +149,13 @@ function SchurComplementSolver(
     end
     @assert !any(rowval .== 0)
 
+    pivot_matrix = csc[pivot_indices, pivot_indices]
+    schur_solver = SchurSolver(pivot_matrix; logger)
+    # Need to factorize here if I'm going to use this to construct the reduced matrix
+    #MadNLP.factorize!(schur_solver)
+    # Assuming that this matrix gives us a superset of all possible nonzeros
+    #reduced_matrix = _sparse_schur(csc, pivot_indices)
+
     #nnz = length(csc.nzval)
     #pivot_nzs = filter(i->(row[i] in pivot_index_set && col[i] in pivot_index_set), 1:nnz)
     ## Filter nonzeros to only contain the pivot submatrix
@@ -124,7 +166,7 @@ function SchurComplementSolver(
     #col = remap[col]
     # This doesn't necessarily guarantee the order of nzvals either...
     #pivot_matrix = SparseArrays.sparse(row, col, val)
-    pivot_matrix = csc[pivot_indices, pivot_indices]
+    #pivot_matrix = csc[pivot_indices, pivot_indices]
     #
     # Need to construct CSC explicitly so nonzeros don't get permuted or combined
     #pivot_matrix = SparseArrays.SparseMatrixCSC(
@@ -138,7 +180,7 @@ function SchurComplementSolver(
     @assert all(I .>= J)
     # TODO: Allow passing options to subsolver
     reduced_solver = ReducedSolver(reduced_matrix; logger)
-    schur_solver = SchurSolver(pivot_matrix; logger)
+    #schur_solver = SchurSolver(pivot_matrix; logger)
 
     return SchurComplementSolver{FloatType,IntType}(
         csc, reduced_solver, schur_solver, pivot_indices
@@ -148,7 +190,11 @@ end
 function MadNLP.introduce(solver::SchurComplementSolver)
     rsolvername = MadNLP.introduce(solver.reduced_solver)
     ssolvername = MadNLP.introduce(solver.schur_solver)
-    return "A Schur-complement solver with reduced subsolver $(rsolvername) and Schur subsolver $(ssolvername)"
+    pivot_dim = length(solver.pivot_indices)
+    return (
+        "A Schur-complement solver with reduced subsolver $(rsolvername) and Schur subsolver $(ssolvername)"
+        * " operating on a pivot of size $(pivot_dim)x$(pivot_dim)"
+    )
 end
 
 function MadNLP.factorize!(solver::SchurComplementSolver)
@@ -222,6 +268,11 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     #display(term2)
     # The nonzero storage pattern here is not consistent.
     schur_complement = A - LinearAlgebra.tril(term2)
+    #println("Schur complement matrix:")
+    #display(schur_complement)
+    #tol = 1e-10
+    #nsmall = count(x -> abs(x) <= tol, schur_complement.nzval)
+    #println("$nsmall entries with values below $tol")
     schur_lookup = Dict((i, j) => v for (i, j, v) in zip(SparseArrays.findnz(schur_complement)...))
 
     #println("Computed Schur complement:")
