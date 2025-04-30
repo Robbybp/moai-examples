@@ -6,21 +6,19 @@ import MadNLPHSL
 # For some reason, we need to extend this method
 MadNLP.parse_option(::Any, vec::Vector) = vec
 
+mutable struct SchurComplementTimer
+    initialize::Float64
+    factorize::Float64
+    solve::Float64
+    SchurComplementTimer() = new(0.0, 0.0, 0.0)
+end
+
 # This seems not to work with a parameterized type?
 #@kwdef mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions where {INT}
 mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions
     ReducedSolver::Type
     SchurSolver::Type
-    # We're going to perform a symmetric reduction, so we really only need one set of indices
     pivot_indices::Vector{INT}
-    #function SchurComplementOption(;
-    #    ReducedSolver::Type = MadNLPHSL.Ma27Solver,
-    #    SchurSolver::Type = MadNLPHSL.Ma27Solver,
-    #    pivot_indices::Vector{INT} = Tuple{Int32,Int32}[],
-    #) where {INT}
-    #    int = eltype(eltype(pivot_indices))
-    #    return new{int}(ReducedSolver, SchurSolver, pivot_indices)
-    #end
     SchurComplementOptions(;
         #MadNLPHSL.Ma27Solver,
         #MadNLPHSL.Ma27Solver,
@@ -42,6 +40,7 @@ struct SchurComplementSolver{T,INT} <: MadNLP.AbstractLinearSolver{T}
     schur_solver::MadNLP.AbstractLinearSolver{T}
     # These are indices on which we pivot rows and columns.
     pivot_indices::Vector{INT}
+    timer::SchurComplementTimer
 end
 
 function _sparse_schur(
@@ -95,6 +94,8 @@ function SchurComplementSolver(
 ) where {T,INT}
     FloatType = eltype(csc.nzval)
     IntType = eltype(csc.rowval)
+    timer = SchurComplementTimer()
+    t_start = time()
     # TODO: I need to make sure these submatrices get updated when CSC changes
     # To do this, I will need to construct the submatrices directly from the
     # nz array of the original matrix.
@@ -182,8 +183,10 @@ function SchurComplementSolver(
     reduced_solver = ReducedSolver(reduced_matrix; logger)
     #schur_solver = SchurSolver(pivot_matrix; logger)
 
+    timer.initialize += time() - t_start
+
     return SchurComplementSolver{FloatType,IntType}(
-        csc, reduced_solver, schur_solver, pivot_indices
+        csc, reduced_solver, schur_solver, pivot_indices, timer
     )
 end
 
@@ -219,6 +222,7 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     #    1:nnz,
     #)
 
+    t_start = time()
     solver.schur_solver.csc.nzval[:] = solver.csc[solver.pivot_indices, solver.pivot_indices].nzval
 
     MadNLP.factorize!(solver.schur_solver)
@@ -298,6 +302,7 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     MadNLP.factorize!(solver.reduced_solver)
     # Potentially, I could pre-compute some matrices that I need for the solve
     # of the Schur systems.
+    solver.timer.factorize += time() - t_start
     return solver
 end
 
@@ -323,6 +328,7 @@ function MadNLP.inertia(solver::SchurComplementSolver)
 end
 
 function MadNLP.solve!(solver::SchurComplementSolver{T,INT}, rhs::Vector{T}) where {T,INT}
+    t_start = 0.0
     # Partition rhs according to Schur complement coords
     dim = solver.csc.n
     pivot_dim = length(solver.pivot_indices)
@@ -356,15 +362,11 @@ function MadNLP.solve!(solver::SchurComplementSolver{T,INT}, rhs::Vector{T}) whe
     rhs_reduced = orig_rhs_reduced - B' * temp
 
     MadNLP.solve!(solver.reduced_solver, rhs_reduced)
-    # NOTE: We're not solving with the correct RHS here
-    # rhs_reduced stores the reduced-space solution at this point
     rhs_pivot = orig_rhs_pivot - B * rhs_reduced
     MadNLP.solve!(solver.schur_solver, rhs_pivot)
-    #dummy_rhs = zeros(pivot_dim)
-    #MadNLP.solve!(solver.schur_solver, dummy_rhs)
     rhs[R] .= rhs_reduced
-    # NOTE: We're not updating with the correct values here
     rhs[P] .= rhs_pivot
+    solver.timer.solve += time() - t_start
     return rhs
 end
 

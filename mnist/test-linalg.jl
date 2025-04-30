@@ -184,7 +184,25 @@ function test_nlp_solve_small_nn()
     return
 end
 
+function test_timer()
+    m, info = make_tiny_model()
+    _, _, kkt_matrix = get_kkt(m)
+    pivot_indices = get_kkt_indices(m, info.variables, info.constraints)
+    pivot_indices = convert(Vector{Int32}, pivot_indices)
+    opt = SchurComplementOptions(; pivot_indices)
+    solver = SchurComplementSolver(kkt_matrix; opt)
+    @test solver.timer.initialize > 0.0
+    @test solver.timer.factorize == 0.0
+    @test solver.timer.solve == 0.0
+    MadNLP.factorize!(solver)
+    @test solver.timer.factorize > 0.0
+    rhs = ones(kkt_matrix.m)
+    MadNLP.solve!(solver, rhs)
+    @test solver.timer.solve > 0.0
+end
+
 @testset begin
+    test_timer()
     test_factorize_nominal_tiny()
     test_factorize_nominal_small_nn()
     test_solve_nominal_tiny()
