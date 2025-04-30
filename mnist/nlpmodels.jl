@@ -1,5 +1,6 @@
 import JuMP
 import MathOptInterface as MOI
+import NLPModels
 import NLPModelsJuMP
 
 _shape(::MOI.VariableIndex) = JuMP.ScalarShape()
@@ -76,4 +77,21 @@ function get_kkt_indices(model::JuMP.Model, variables::Vector, constraints::Vect
     kkt_cindices = cindices .+ (nvar + nslack)
     kkt_indices = vcat(kkt_vindices, kkt_cindices)
     return kkt_indices
+end
+
+function get_kkt(model::JuMP.Model)
+    nlp = NLPModelsJuMP.MathOptNLPModel(model)
+    ind_cons = MadNLP.get_index_constraints(nlp)
+    cb = MadNLP.create_callback(MadNLP.SparseCallback, nlp)
+    kkt_system = MadNLP.create_kkt_system(
+        MadNLP.SparseKKTSystem,
+        cb,
+        ind_cons,
+        MadNLPHSL.Ma27Solver, # We won't use this linear solver
+    )
+    MadNLP.initialize!(kkt_system)
+    update_kkt!(kkt_system, nlp)
+    MadNLP.build_kkt!(kkt_system)
+    kkt_matrix = MadNLP.get_kkt(kkt_system)
+    return nlp, kkt_system, kkt_matrix
 end

@@ -6,11 +6,47 @@ import MadNLPHSL
 # For some reason, we need to extend this method
 MadNLP.parse_option(::Any, vec::Vector) = vec
 
+mutable struct SchurComplementFactorizeTimer
+    total::Float64
+    reduced::Float64
+    pivot::Float64
+    update_pivot::Float64
+    solve::Float64
+    multiply::Float64
+    update_reduced::Float64
+    SchurComplementFactorizeTimer() = new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+end
+
 mutable struct SchurComplementTimer
     initialize::Float64
-    factorize::Float64
+    factorize::SchurComplementFactorizeTimer
     solve::Float64
-    SchurComplementTimer() = new(0.0, 0.0, 0.0)
+    SchurComplementTimer() = new(0.0, SchurComplementFactorizeTimer(), 0.0)
+end
+
+function Base.show(io::IO, timer::SchurComplementTimer)
+    println(io, "SchurComplementSolver timing information")
+    println(io, "----------------------------------------")
+    println(io, "initialize: $(timer.initialize)")
+    println(io, "factorize:  $(timer.factorize.total)")
+    println(io, "  reduced:        $(timer.factorize.reduced)")
+    println(io, "  pivot:          $(timer.factorize.pivot)")
+    println(io, "  update_pivot:   $(timer.factorize.update_pivot)")
+    println(io, "  solve:          $(timer.factorize.solve)")
+    println(io, "  multiply:       $(timer.factorize.multiply)")
+    println(io, "  update_reduced: $(timer.factorize.update_reduced)")
+    other = (
+        timer.factorize.total
+        - timer.factorize.reduced
+        - timer.factorize.pivot
+        - timer.factorize.update_pivot
+        - timer.factorize.solve
+        - timer.factorize.multiply
+        - timer.factorize.update_reduced
+    )
+    println(io, "  other:          $(other)")
+    println(io, "solve:      $(timer.solve)")
+    println(io, "----------------------------------------")
 end
 
 # This seems not to work with a parameterized type?
@@ -224,8 +260,11 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
 
     t_start = time()
     solver.schur_solver.csc.nzval[:] = solver.csc[solver.pivot_indices, solver.pivot_indices].nzval
+    solver.timer.factorize.update_pivot += time() - t_start
 
+    t_pivot_start = time()
     MadNLP.factorize!(solver.schur_solver)
+    solver.timer.factorize.pivot += time() - t_pivot_start
 
     # KKT matrix has the following structure:
     #
@@ -260,14 +299,18 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     for j in 1:reduced_dim
         temp = sol[:, j]
         # view(sol, :, j) isn't working here, even though it seems like it should...
+        t_solve_start = time()
         MadNLP.solve!(solver.schur_solver, temp)
+        solver.timer.factorize.solve += time() - t_solve_start
         sol[:, j] = temp
     end
     #println("B:")
     #display(B)
     #println("C:")
     #display(solver.schur_solver.csc)
+    t_multiply_start = time()
     term2 = B' * SparseArrays.sparse(sol)
+    solver.timer.factorize.multiply += time() - t_multiply_start
     #println("B' C^-1 B")
     #display(term2)
     # The nonzero storage pattern here is not consistent.
@@ -285,6 +328,7 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     #println("schur_lookup:")
     #display(schur_lookup)
 
+    t_update_start = time()
     for j in 1:reduced_dim # Iterate over columns
         # And over rows appearing in this column
         for k in solver.reduced_solver.csc.colptr[j]:(solver.reduced_solver.csc.colptr[j+1]-1)
@@ -296,13 +340,16 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
             end
         end
     end
+    solver.timer.factorize.update_reduced += time() - t_update_start
     #println("Reduced solver's matrix before factorization:")
     #display(solver.reduced_solver.csc)
     #display(Matrix(solver.reduced_solver.csc))
+    t_reduced_start = time()
     MadNLP.factorize!(solver.reduced_solver)
+    solver.timer.factorize.reduced += time() - t_reduced_start
     # Potentially, I could pre-compute some matrices that I need for the solve
     # of the Schur systems.
-    solver.timer.factorize += time() - t_start
+    solver.timer.factorize.total += time() - t_start
     return solver
 end
 
@@ -328,7 +375,7 @@ function MadNLP.inertia(solver::SchurComplementSolver)
 end
 
 function MadNLP.solve!(solver::SchurComplementSolver{T,INT}, rhs::Vector{T}) where {T,INT}
-    t_start = 0.0
+    t_start = time()
     # Partition rhs according to Schur complement coords
     dim = solver.csc.n
     pivot_dim = length(solver.pivot_indices)

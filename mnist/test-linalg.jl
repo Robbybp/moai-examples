@@ -15,23 +15,6 @@ include("models.jl")
 
 Random.seed!(1111)
 
-function get_kkt(model::JuMP.Model)
-    nlp = NLPModelsJuMP.MathOptNLPModel(model)
-    ind_cons = MadNLP.get_index_constraints(nlp)
-    cb = MadNLP.create_callback(MadNLP.SparseCallback, nlp)
-    kkt_system = MadNLP.create_kkt_system(
-        MadNLP.SparseKKTSystem,
-        cb,
-        ind_cons,
-        MadNLPHSL.Ma27Solver, # We won't use this linear solver
-    )
-    MadNLP.initialize!(kkt_system)
-    update_kkt!(kkt_system, nlp)
-    MadNLP.build_kkt!(kkt_system)
-    kkt_matrix = MadNLP.get_kkt(kkt_system)
-    return nlp, kkt_system, kkt_matrix
-end
-
 function _test_factorize_nominal(
     kkt_matrix::SparseArrays.SparseMatrixCSC,
     pivot_indices::Vector{Int32},
@@ -192,10 +175,13 @@ function test_timer()
     opt = SchurComplementOptions(; pivot_indices)
     solver = SchurComplementSolver(kkt_matrix; opt)
     @test solver.timer.initialize > 0.0
-    @test solver.timer.factorize == 0.0
+    @test solver.timer.factorize.total == 0.0
     @test solver.timer.solve == 0.0
     MadNLP.factorize!(solver)
-    @test solver.timer.factorize > 0.0
+    factorize_timer = solver.timer.factorize
+    @test factorize_timer.pivot > 0.0
+    @test factorize_timer.reduced > 0.0
+    @test factorize_timer.total > factorize_timer.pivot + factorize_timer.reduced
     rhs = ones(kkt_matrix.m)
     MadNLP.solve!(solver, rhs)
     @test solver.timer.solve > 0.0
