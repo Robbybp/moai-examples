@@ -48,7 +48,7 @@ for i in 1:NSAMPLES
     # If we update values in the KKT system, we need to run the following:
     #update_kkt!(kkt_system, nlp; x)
     #MadNLP.build_kkt!(kkt_system)
-    MadNLP.factorize!(solver)
+    Profile.@profile MadNLP.factorize!(solver)
     MadNLP.solve!(solver, d)
 end
 println(solver.timer)
@@ -70,3 +70,6 @@ println("-----------")
 println("initialize: $t_ma27_init")
 println("factorize:  $t_ma27_factorize")
 println("solve:      $t_ma27_solve")
+
+println("MadNLP.factorize!(::SchurComplementSolver) Profile:")
+Profile.print()
