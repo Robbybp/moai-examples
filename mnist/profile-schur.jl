@@ -23,15 +23,22 @@ if PRECOMPILE
     rhs = ones(kkt_matrix.m)
     MadNLP.factorize!(solver)
     MadNLP.solve!(solver, rhs)
+    # TODO: Factorize with "baseline solver" in precompile section
 end
 
-nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
+# TODO: CLI
+nnfile = joinpath("nn-models", "mnist-relu512nodes4layers.pt")
 image_index = 7
 adversarial_label = 1
 threshold = 0.6
 
 model, outputs, formulation = get_adversarial_model(
     nnfile, image_index, adversarial_label, threshold
+)
+
+reduced_model, reduced_outputs, reduced_formulation = get_adversarial_model(
+    nnfile, image_index, adversarial_label, threshold;
+    reduced_space = true,
 )
 
 nlp, kkt_system, kkt_matrix = get_kkt(model)
@@ -42,7 +49,9 @@ rhs = ones(kkt_matrix.m)
 opt = SchurComplementOptions(; pivot_indices)
 solver = SchurComplementSolver(kkt_matrix; opt)
 
-NSAMPLES = 2
+display(kkt_matrix)
+
+NSAMPLES = 1
 for i in 1:NSAMPLES
     d = copy(rhs)
     # If we update values in the KKT system, we need to run the following:
@@ -53,23 +62,52 @@ for i in 1:NSAMPLES
 end
 println(solver.timer)
 
-t_init_start = time()
-ma27 = MadNLPHSL.Ma27Solver(kkt_matrix)
-t_ma27_init = time() - t_init_start
+function profile_solver(
+    Solver::Type,
+    kkt_matrix::SparseArrays.SparseMatrixCSC,
+)
+    rhs = ones(kkt_matrix.m)
+    t_init_start = time()
+    solver = Solver(kkt_matrix)
+    t_ma27_init = time() - t_init_start
 
-t_factorize_start = time()
-MadNLP.factorize!(ma27)
-t_ma27_factorize = time() - t_factorize_start
+    t_factorize_start = time()
+    MadNLP.factorize!(solver)
+    t_ma27_factorize = time() - t_factorize_start
 
-t_solve_start = time()
-MadNLP.solve!(ma27, rhs)
-t_ma27_solve = time() - t_solve_start
+    t_solve_start = time()
+    MadNLP.solve!(solver, rhs)
+    t_ma27_solve = time() - t_solve_start
 
-println("MA27 timing")
-println("-----------")
-println("initialize: $t_ma27_init")
-println("factorize:  $t_ma27_factorize")
-println("solve:      $t_ma27_solve")
+    println(MadNLP.introduce(solver))
+    println("-----------")
+    println("initialize: $t_ma27_init")
+    println("factorize:  $t_ma27_factorize")
+    println("solve:      $t_ma27_solve")
+    # TODO: Return something
+    return
+end
 
-println("MadNLP.factorize!(::SchurComplementSolver) Profile:")
-Profile.print()
+function profile_solver(Solver::Type; reduced_space::Bool = false)
+    formname = reduced_space ? "reduced-space" : "full-space"
+    println("Profiling the $formname formulation")
+    model, outputs, formulation = get_adversarial_model(
+        nnfile, image_index, adversarial_label, threshold;
+        reduced_space = reduced_space,
+    )
+    nlp, kkt_system, kkt_matrix = get_kkt(model)
+    pivot_vars, pivot_cons = get_vars_cons(formulation)
+    pivot_indices = get_kkt_indices(model, pivot_vars, pivot_cons)
+    pivot_indices = convert(Vector{Int32}, pivot_indices)
+    rhs = ones(kkt_matrix.m)
+    return profile_solver(Solver, kkt_matrix)
+end
+
+profile_solver(MadNLPHSL.Ma27Solver, kkt_matrix)
+profile_solver(MadNLPHSL.Ma27Solver; reduced_space = true)
+
+PROFILE = false
+if PROFILE
+    println("MadNLP.factorize!(::SchurComplementSolver) Profile:")
+    Profile.print()
+end

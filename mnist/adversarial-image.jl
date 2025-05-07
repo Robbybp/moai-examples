@@ -33,7 +33,11 @@ OPTIMIZER_ATTRIBUTES_LOOKUP = Dict(
         "print_user_options" => "yes",
         "print_timing_statistics" => "yes",
     ],
-    "madnlp" => ["tol" => 1e-6, "linear_solver" => MadNLPHSL.Ma27Solver],
+    "madnlp" => [
+        "tol" => 1e-6,
+        "linear_solver" => MadNLPHSL.Ma27Solver,
+        "max_iter" => 5,
+    ],
     #"madnlp" => ["tol" => 1e-6, "linear_solver" => SchurComplementSolver],
 )
 
@@ -53,11 +57,21 @@ function get_adversarial_label(target::Int)
     return ADVERSARIAL_LABEL_LOOKUP[target]
 end
 
+"""
+Parameters
+----------
+
+reduced_space::Bool
+    Use a reduced-space formulation. Note that this actually uses the MathOptAI
+    GrayBox formulation, for (a) performance and (b) compatibility with ReLU.
+        
+"""
 function get_adversarial_model(
     nnfile::String,
     image_index::Int,
     adversarial_label::Int,
-    threshold::Float64,
+    threshold::Float64;
+    reduced_space::Bool = false,
 )
     # Network is trained so that outputs represent 0-9
     adversarial_target_index = adversarial_label + 1
@@ -89,13 +103,23 @@ function get_adversarial_model(
     # Fortunately, `vec` stacks matrices by column, so it gives us the correct flattened
     # vector.
 
-    config = Dict(:ReLU => MOAI.ReLUQuadratic(relaxation_parameter = 1e-6))
+    if reduced_space
+        config = Dict()
+    else
+        config = Dict(:ReLU => MOAI.ReLUQuadratic(relaxation_parameter = 1e-6))
+    end
 
     m = JuMP.Model()
-    println
     #JuMP.@variable(m, 0.0 <= x[1:height_dim, 1:length_dim] <= 1.0, start = 0.5)
     JuMP.@variable(m, 0.0 <= x[i in 1:height_dim, j in 1:length_dim] <= 1.0, start = xref[i, j])
-    y, formulation = MOAI.add_predictor(m, predictor, vec(x); config)
+    y, formulation = MOAI.add_predictor(
+        m,
+        predictor,
+        vec(x);
+        config,
+        gray_box = reduced_space,
+        hessian = true,
+    )
     JuMP.@constraint(m, 0.0 .<= y .<= 1.0)
 
     # Minimize 1-norm of deviation from reference image using slack variables
@@ -114,11 +138,13 @@ function find_adversarial_image(
     image_index::Int,
     adversarial_label::Int,
     threshold::Float64,
-    optimizer_name::String,
+    optimizer_name::String;
+    reduced_space::Bool = false,
 )
     println("FINDING ADVERSARIAL EXAMPLE FOR IMAGE $(image_index)")
     m, y, formulation = get_adversarial_model(
-        nnfile, image_index, adversarial_label, threshold
+        nnfile, image_index, adversarial_label, threshold;
+        reduced_space = reduced_space,
     )
 
     optimizer = JuMP.optimizer_with_attributes(

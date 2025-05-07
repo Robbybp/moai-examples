@@ -43,6 +43,11 @@ ArgParse.add_arg_table(
         :help => "Solver for adversarial optimization problem $(VALID_OPTIMIZERS)",
         :default => "madnlp",
     ),
+    "--reduced-space",
+    Dict(
+        :action => :store_true,
+        :help => "Use a reduced-space (GrayBox) formulation",
+    ),
 )
 args = ArgParse.parse_args(settings)
 
@@ -51,5 +56,6 @@ find_adversarial_image(
     args["index"],
     args["label"],
     args["threshold"],
-    args["solver"],
+    args["solver"];
+    reduced_space = args["reduced-space"],
 )
