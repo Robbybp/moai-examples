@@ -7,6 +7,8 @@ import MLDatasets
 
 include("config.jl")
 include("adversarial-image.jl")
+# NOTE that these globals come from adversarial-image.
+# TODO: Move them to config if we need them anywhere else.
 VALID_OPTIMIZERS = keys(OPTIMIZER_LOOKUP)
 
 settings = get_cli_settings()
