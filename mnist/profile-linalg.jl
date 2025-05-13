@@ -15,8 +15,7 @@ include("formulation.jl")
 include("nlpmodels.jl")
 include("models.jl")
 
-PRECOMPILE = true
-if PRECOMPILE
+function precompile_linalg(; schur=true)
     model, info = make_tiny_model()
     _, _, kkt_matrix = get_kkt(model)
     pivot_indices = get_kkt_indices(model, info.variables, info.constraints)
@@ -28,15 +27,6 @@ if PRECOMPILE
     MadNLP.solve!(solver, rhs)
     # TODO: Factorize with "baseline solver" in precompile section
 end
-
-# TODO: CLI
-#
-# Global data:
-IMAGE_INDEX = 7
-ADVERSARIAL_LABEL = 1
-THRESHOLD = 0.6
-
-#nnfile = joinpath("nn-models", "mnist-relu512nodes4layers.pt")
     
 if false
     model, outputs, formulation = get_adversarial_model(
@@ -108,86 +98,62 @@ function profile_solver(
     Solver::Type,
     nnfile::String;
     reduced_space::Bool = false,
+    # TODO: Get default values for these if they don't exist.
+    #image_index = nothing,
+    #adversarial_label = nothing,
+    #threshold = nothing,
 )
     formname = reduced_space ? "reduced-space" : "full-space"
     println("Profiling the $formname formulation")
+    # TODO: Don't rely on global data here.
+    # But where to define the defaults?
+
+    t_model_start = time()
     model, outputs, formulation = get_adversarial_model(
         nnfile, IMAGE_INDEX, ADVERSARIAL_LABEL, THRESHOLD;
         reduced_space = reduced_space,
     )
-    nlp, kkt_system, kkt_matrix = get_kkt(model)
+    nlp, kkt_system, kkt_matrix = get_kkt(model; Solver)
     pivot_vars, pivot_cons = get_vars_cons(formulation)
     pivot_indices = get_kkt_indices(model, pivot_vars, pivot_cons)
     pivot_indices = convert(Vector{Int32}, pivot_indices)
+    t_model = time() - t_model_start
+    println("Time to build model and extract KKT: $t_model")
     rhs = ones(kkt_matrix.m)
-    return profile_solver(Solver, kkt_matrix)
-end
 
-#profile_solver(MadNLPHSL.Ma27Solver, kkt_matrix)
-#profile_solver(MadNLPHSL.Ma27Solver; reduced_space = true)
-
-solver_types = [
-    MadNLPHSL.Ma27Solver,
-    MadNLPHSL.Ma57Solver,
-    MadNLPHSL.Ma97Solver,
-]
-nnfnames = [
-    "mnist-relu128nodes4layers.pt",
-    "mnist-relu128nodes8layers.pt",
-    "mnist-relu256nodes4layers.pt",
-    "mnist-relu256nodes8layers.pt",
-    "mnist-relu512nodes4layers.pt",
-    "mnist-relu512nodes8layers.pt",
-    "mnist-relu1024nodes4layers.pt",
-]
-excluded = Set([
-    # MA27 and MA97 have very bad scaling in symbolic factorization
-    # that makes factorizing with these networks impractical.
-    (MadNLPHSL.Ma27Solver, "mnist-relu512nodes8layers.pt"),
-    (MadNLPHSL.Ma27Solver, "mnist-relu1024nodes4layers.pt"),
-    (MadNLPHSL.Ma97Solver, "mnist-relu512nodes8layers.pt"),
-    (MadNLPHSL.Ma97Solver, "mnist-relu1024nodes4layers.pt"),
-])
-
-profile_params = [
-    (;
-        Solver,
-        fname,
-        reduced,
+    info = profile_solver(Solver, kkt_matrix)
+    newtimedata = merge((; model=t_model), info.time)
+    result = (;
+        time = newtimedata,
+        nnz = info.nnz,
     )
-    for Solver in solver_types
-    for fname in nnfnames
-    for reduced in (false,)
-]
+    return result
+end
 
-# Filter out combinations that we know aren't worth doing
-# (e.g., because they take too long and we already know the bottleneck)
-profile_params = [p for p in profile_params if !((p[1], p[2]) in excluded)]
 
-# TODO: Move this to a CLI file
-data = []
-for params in profile_params
-    println()
-    println("Profiling with following parameters:")
-    display(params)
-    fpath = joinpath("nn-models", params.fname)
-    info = profile_solver(
-        params.Solver,
-        fpath;
-        reduced_space = params.reduced,
+if abspath(PROGRAM_FILE) == @__FILE__
+    # TODO: CLI
+    # Global data:
+    IMAGE_INDEX = 7
+    ADVERSARIAL_LABEL = 1
+    THRESHOLD = 0.6
+
+    PRECOMPILE = true
+    if PRECOMPILE
+        precompile_linalg()
+    end
+
+    nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
+    model, outputs, formulation = get_adversarial_model(
+        nnfile, IMAGE_INDEX, ADVERSARIAL_LABEL, THRESHOLD
     )
-    # Insert 'nnz' field between params and times
-    params = merge(params, (; nnz = info.nnz))
-    push!(data, merge(params, info.time))
-end
-df = DataFrames.DataFrame(data)
-display(df)
-open("profile.csv", "w") do io
-    return CSV.write(io, df)
-end
+    nlp, kkt_system, kkt_matrix = get_kkt(model)
+    profile_solver(MadNLPHSL.Ma27Solver, kkt_matrix)
+    profile_solver(MadNLPHSL.Ma27Solver, nnfile; reduced_space = true)
 
-PROFILE = false
-if PROFILE
-    println("MadNLP.factorize!(::SchurComplementSolver) Profile:")
-    Profile.print()
+    PROFILE = false
+    if PROFILE
+        println("MadNLP.factorize!(::SchurComplementSolver) Profile:")
+        Profile.print()
+    end
 end
