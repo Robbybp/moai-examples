@@ -32,7 +32,7 @@ THRESHOLD = 0.6
 
 solver_types = [
     #MadNLPHSL.Ma27Solver,
-    MadNLPHSL.Ma57Solver,
+    MadNLPHSL.Ma57Solver, # TODO: How does MA57 do with Metis?
     #MadNLPHSL.Ma97Solver,
 ]
 nnfnames = [
