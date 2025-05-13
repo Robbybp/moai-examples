@@ -2,12 +2,9 @@ import ArgParse
 
 FILEDIR = dirname(@__FILE__)
 
-function get_cli_settings()
-    settings = ArgParse.ArgParseSettings()
+function _add_common_args(settings::ArgParse.ArgParseSettings)
     ArgParse.add_arg_table(
         settings,
-        "fpath",
-        Dict(:help=>"NN .pt file"),
         "--index",
         Dict(
             :help=>"index of image (BASE-1!!!)",
@@ -43,4 +40,21 @@ function get_cli_settings()
         ),
     )
     return settings
+end
+
+function get_cli_settings()
+    settings = ArgParse.ArgParseSettings()
+    ArgParse.add_arg_table(settings, "fpath", Dict(:help=>"NN .pt file"))
+    _add_common_args(settings)
+    return settings
+end
+
+function get_profile_cli_settings()
+    settings = get_cli_settings()
+    _add_common_args(settings)
+    ArgParse.add_arg_table(
+        settings,
+        "--nn",
+        Dict(:help=>"ID of NN to use. Default loops over all NNs."),
+    )
 end
