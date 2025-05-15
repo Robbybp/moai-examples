@@ -62,12 +62,22 @@ end
 
 function profile_solver(
     Solver::Type,
-    kkt_matrix::SparseArrays.SparseMatrixCSC,
+    kkt_matrix::SparseArrays.SparseMatrixCSC;
+    opt = MadNLP.default_options(Solver),
 )
+    println("Solver type:    $Solver")
+    if Solver === SchurComplementSolver
+        println("Reduced subsolver = $(opt.ReducedSolver)")
+        println("Pivot subsolver   = $(opt.SchurSolver)")
+    end
     rhs = ones(kkt_matrix.m)
     t_init_start = time()
-    solver = Solver(kkt_matrix)
+    solver = Solver(kkt_matrix; opt)
     t_init = time() - t_init_start
+
+    println(MadNLP.introduce(solver))
+    println("-----------")
+    println("initialize: $t_init")
 
     t_factorize_start = time()
     MadNLP.factorize!(solver)
@@ -77,9 +87,6 @@ function profile_solver(
     MadNLP.solve!(solver, rhs)
     t_solve = time() - t_solve_start
 
-    println(MadNLP.introduce(solver))
-    println("-----------")
-    println("initialize: $t_init")
     println("factorize:  $t_factorize")
     println("solve:      $t_solve")
     # TODO: Return something
@@ -98,6 +105,7 @@ function profile_solver(
     Solver::Type,
     nnfile::String;
     reduced_space::Bool = false,
+    schur::Bool = false,
     # TODO: Get default values for these if they don't exist.
     #image_index = nothing,
     #adversarial_label = nothing,
@@ -121,7 +129,13 @@ function profile_solver(
     println("Time to build model and extract KKT: $t_model")
     rhs = ones(kkt_matrix.m)
 
-    info = profile_solver(Solver, kkt_matrix)
+    if schur
+        opt = SchurComplementOptions(; ReducedSolver = Solver, PivotSolver = Solver, pivot_indices = pivot_indices)
+        info = profile_solver(SchurComplementSolver, kkt_matrix; opt)
+    else
+        info = profile_solver(Solver, kkt_matrix)
+    end
+
     newtimedata = merge((; model=t_model), info.time)
     result = (;
         time = newtimedata,

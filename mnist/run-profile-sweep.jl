@@ -31,6 +31,13 @@ ADVERSARIAL_LABEL = 1
 THRESHOLD = 0.6
 
 
+SOLVER_TO_NAME = Dict(
+    MadNLPHSL.Ma27Solver => "MA27",
+    MadNLPHSL.Ma57Solver => "MA57",
+    MadNLPHSL.Ma97Solver => "MA97",
+)
+
+
 function run_profile_sweep(;
     profile_params,
 )
@@ -44,9 +51,16 @@ function run_profile_sweep(;
             params.Solver,
             fpath;
             reduced_space = params.reduced,
+            schur = params.schur,
         )
         # Insert 'nnz' field between params and times
         params = merge(params, (; nnz = info.nnz))
+        params = (;
+            Solver = SOLVER_TO_NAME[params.Solver],
+            ID = _parse_nn_fname(params.fname),
+            reduced = params.reduced,
+            schur = params.schur,
+        )
         push!(data, merge(params, info.time))
     end
     return data
@@ -56,15 +70,16 @@ function _parse_nn_fname(fname::String)
     fname = basename(fname)
     @assert length(split(fname, ".")) == 2
     fname = split(fname, ".")[1]
-    @assert fname[1:6] == "mnist-"
+    @assert fname[1:length("mnist-")] == "mnist-"
     nchar = length(fname)
-    activation_len = 0
-    while activation_len+1 <= nchar && !isdigit(fname[activation_len+1])
-        activation_len += 1
+    activation_start = length("mnist-") + 1
+    activation_end = activation_start
+    while activation_end+1 <= nchar && !isdigit(fname[activation_end+1])
+        activation_end += 1
     end
-    activation_name = fname[1:activation_len]
+    activation_name = fname[activation_start:activation_end]
 
-    nnode_start = activation_len + 1
+    nnode_start = activation_end + 1
     nnode_end = nnode_start
     @assert isdigit(fname[nnode_start])
     while nnode_end + 1 <= nchar && isdigit(fname[nnode_end+1])
@@ -88,27 +103,59 @@ function _parse_nn_fname(fname::String)
     return (activation_name, nnode, nlayer)
 end
 
+NNFNAMES = [
+    "mnist-relu128nodes4layers.pt",
+    "mnist-relu128nodes8layers.pt",
+    "mnist-relu256nodes4layers.pt",
+    "mnist-relu256nodes8layers.pt",
+    "mnist-relu512nodes4layers.pt",
+    "mnist-relu512nodes8layers.pt",
+    "mnist-relu768nodes4layers.pt",
+    "mnist-relu1024nodes4layers.pt",
+    "mnist-relu1024nodes8layers.pt",
+    "mnist-relu1536nodes4layers.pt",
+    "mnist-relu1536nodes8layers.pt",
+    "mnist-relu1536nodes12layers.pt",
+    "mnist-relu1792nodes8layers.pt",
+    "mnist-relu2048nodes4layers.pt",
+    "mnist-relu2048nodes5layers.pt",
+    "mnist-relu2048nodes6layers.pt",
+]
+
+struct ProfileParams
+    Solver::Type
+    fname::String
+    reduced::Bool
+    schur::Bool
+end
+ProfileParams(Solver, fname, reduced; schur = false) = ProfileParams(Solver, fname, reduced, schur)
+
+function Base.merge(p::ProfileParams, t::NamedTuple)
+    params_t = (; Solver = p.Solver, fname = p.fname, reduced = p.reduced, schur = p.schur)
+    return merge(params_t, t)
+end
+
 function _profile_nn_scaling()
     solver_types = [
-        #MadNLPHSL.Ma27Solver,
+        MadNLPHSL.Ma27Solver,
         MadNLPHSL.Ma57Solver, # TODO: How does MA57 do with Metis?
-        #MadNLPHSL.Ma97Solver,
+        MadNLPHSL.Ma97Solver,
     ]
     nnfnames = [
-        #"mnist-relu128nodes4layers.pt",
-        #"mnist-relu128nodes8layers.pt",
-        #"mnist-relu256nodes4layers.pt",
-        #"mnist-relu256nodes8layers.pt",
-        #"mnist-relu512nodes4layers.pt",
-        #"mnist-relu512nodes8layers.pt",
+        "mnist-relu128nodes4layers.pt",
+        "mnist-relu128nodes8layers.pt",
+        "mnist-relu256nodes4layers.pt",
+        "mnist-relu256nodes8layers.pt",
+        "mnist-relu512nodes4layers.pt",
+        "mnist-relu512nodes8layers.pt",
         #"mnist-relu768nodes4layers.pt",
-        #"mnist-relu1024nodes4layers.pt",
-        #"mnist-relu1024nodes8layers.pt",
-        #"mnist-relu1536nodes4layers.pt",
+        "mnist-relu1024nodes4layers.pt",
+        "mnist-relu1024nodes8layers.pt",
+        "mnist-relu1536nodes4layers.pt",
         "mnist-relu1536nodes8layers.pt",
         #"mnist-relu1536nodes12layers.pt",
-        "mnist-relu1792nodes8layers.pt",
-        #"mnist-relu2048nodes4layers.pt",
+        #"mnist-relu1792nodes8layers.pt",
+        "mnist-relu2048nodes4layers.pt",
         #"mnist-relu2048nodes5layers.pt",
         #"mnist-relu2048nodes6layers.pt",
     ]
@@ -124,16 +171,12 @@ function _profile_nn_scaling()
     end
 
     profile_params = [
-        (;
-            Solver,
-            fname,
-            reduced,
-        )
+        ProfileParams(Solver, fname, reduced)
         for Solver in solver_types
         for fname in nnfnames
         for reduced in (false,)
     ]
-    profile_params = [p for p in profile_params if !((p[1], p[2]) in excluded)]
+    profile_params = [p for p in profile_params if !((p.Solver, p.fname) in excluded)]
 
     data = run_profile_sweep(; profile_params)
     df = DataFrames.DataFrame(data)
@@ -141,55 +184,97 @@ function _profile_nn_scaling()
     return df
 end
 
-_profile_nn_scaling()
-
-MAIN = false
-if MAIN # By default, we'll run everything, I guess
+function _compare_full_reduced()
     solver_types = [
-        #MadNLPHSL.Ma27Solver,
+        MadNLPHSL.Ma27Solver,
         MadNLPHSL.Ma57Solver, # TODO: How does MA57 do with Metis?
-        #MadNLPHSL.Ma97Solver,
+        MadNLPHSL.Ma97Solver,
     ]
     nnfnames = [
-        #"mnist-relu128nodes4layers.pt",
-        #"mnist-relu128nodes8layers.pt",
-        #"mnist-relu256nodes4layers.pt",
-        #"mnist-relu256nodes8layers.pt",
-        #"mnist-relu512nodes4layers.pt",
+        # IIRC, this is the largest network MA27 and MA97 work on...
+        "mnist-relu512nodes4layers.pt",
         #"mnist-relu512nodes8layers.pt",
-        #"mnist-relu768nodes4layers.pt",
         "mnist-relu1024nodes4layers.pt",
-        "mnist-relu1024nodes8layers.pt",
-        "mnist-relu2048nodes4layers.pt",
-        "mnist-relu2048nodes8layers.pt",
     ]
-    excluded = Set([
+    profile_params = [
+        ProfileParams(Solver, fname, reduced)
+        for reduced in (false, true)
+        for fname in nnfnames
+        for Solver in solver_types
+    ]
+    excluded = Set()
+    for fname in nnfnames
+        _, nnode, nlayer = _parse_nn_fname(fname)
         # MA27 and MA97 have very bad scaling in symbolic factorization
         # that makes factorizing with these networks impractical.
-        (MadNLPHSL.Ma27Solver, "mnist-relu512nodes8layers.pt"),
-        (MadNLPHSL.Ma27Solver, "mnist-relu1024nodes4layers.pt"),
-        (MadNLPHSL.Ma97Solver, "mnist-relu512nodes8layers.pt"),
-        (MadNLPHSL.Ma97Solver, "mnist-relu1024nodes4layers.pt"),
-    ])
-    
-    profile_params = [
-        (;
-            Solver,
-            fname,
-            reduced,
-        )
-        for Solver in solver_types
-        for fname in nnfnames
-        for reduced in (false,)
-    ]
-    
-    # Filter out combinations that we know aren't worth doing
-    # (e.g., because they take too long and we already know the bottleneck)
-    profile_params = [p for p in profile_params if !((p[1], p[2]) in excluded)]
-    
+        if nnode > 512 || (nnode == 512 && nlayer == 8)
+            push!(excluded, (MadNLPHSL.Ma27Solver, fname))
+            push!(excluded, (MadNLPHSL.Ma97Solver, fname))
+        end
+    end
+    profile_params = [p for p in profile_params if !((p.Solver, p.fname) in excluded)]
     data = run_profile_sweep(; profile_params)
     df = DataFrames.DataFrame(data)
     display(df)
+    return df
+end
+
+function _compare_schur()
+    solver_types = [
+        MadNLPHSL.Ma27Solver,
+        MadNLPHSL.Ma57Solver, # TODO: How does MA57 do with Metis?
+        MadNLPHSL.Ma97Solver,
+    ]
+    nnfnames = [
+        # For testing
+        #"mnist-relu128nodes4layers.pt",
+        # IIRC, this is the largest network MA27 and MA97 work on...
+        "mnist-relu512nodes4layers.pt",
+        #"mnist-relu512nodes8layers.pt",
+        "mnist-relu1024nodes4layers.pt",
+    ]
+    profile_params = [
+        ProfileParams(Solver, fname, reduced, schur)
+        for reduced in (false,)
+        for schur in (false, true)
+        for fname in nnfnames
+        for Solver in solver_types
+    ]
+    excluded = Set()
+    for fname in nnfnames
+        _, nnode, nlayer = _parse_nn_fname(fname)
+        # MA27 and MA97 have very bad scaling in symbolic factorization
+        # that makes factorizing with these networks impractical.
+        if nnode > 512 || (nnode == 512 && nlayer == 8)
+            push!(excluded, (MadNLPHSL.Ma27Solver, fname))
+            push!(excluded, (MadNLPHSL.Ma97Solver, fname))
+        end
+    end
+    profile_params = [p for p in profile_params if !((p.Solver, p.fname) in excluded)]
+    data = run_profile_sweep(; profile_params)
+    df = DataFrames.DataFrame(data)
+    display(df)
+    return df
+end
+
+#df = _profile_nn_scaling()
+# The takeaway from this experiment is that symbolic factorization becomes
+# the bottleneck at some point.
+# And that, with about 2k node/layer, factorization takes about 12 s
+
+#df = _compare_full_reduced()
+# Takeaway: Reduced-space is fast.
+
+df = _compare_schur()
+# Takeaway: Schur is slow (although it can do symbolic factorization faster than
+# MA27/97, which is not saying much). On the 1024-by-4 network, it is approximately
+# 50x slower than it needs to be for symbolic and numeric factorization (e.g., 95 s vs 2 s
+# for numeric).
+
+# At some point I'll want to save the results, but for now I want to avoid too many
+# out-of-sync results files clogging my directory.
+WRITE = false
+if WRITE
     open("profile.csv", "w") do io
         return CSV.write(io, df)
     end

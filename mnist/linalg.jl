@@ -60,10 +60,12 @@ mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions
         #MadNLPHSL.Ma27Solver,
         # TODO: Make pivot_indices required. We can't instantiate with an empty
         # pivot matrix as our MA27 wrapper will error.
+        ReducedSolver = MadNLPHSL.Ma27Solver,
+        PivotSolver = MadNLPHSL.Ma27Solver,
         pivot_indices = Int32[],
     ) = new{eltype(pivot_indices)}(
-        MadNLPHSL.Ma27Solver,
-        MadNLPHSL.Ma27Solver,
+        ReducedSolver,
+        PivotSolver,
         #Tuple{Int32,Int32}[],
         pivot_indices,
     )
