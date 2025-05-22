@@ -316,14 +316,16 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
 
     B_dense = Matrix(B)
     sol = copy(B_dense)
-    for j in 1:reduced_dim
+    t_solve_start = time()
+    # Iterate over non-empty columns of B
+    nonempty_cols = filter(j -> B.colptr[j] < B.colptr[j+1], 1:reduced_dim)
+    for j in nonempty_cols
         temp = sol[:, j]
         # view(sol, :, j) isn't working here, even though it seems like it should...
-        t_solve_start = time()
         MadNLP.solve!(solver.schur_solver, temp)
-        solver.timer.factorize.solve += time() - t_solve_start
         sol[:, j] = temp
     end
+    solver.timer.factorize.solve += time() - t_solve_start
     #println("B:")
     #display(B)
     #println("C:")
