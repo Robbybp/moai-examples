@@ -171,9 +171,9 @@ end
         precompile_linalg(; Solver=MadNLPHSL.Ma57Solver)
     end
 
-    nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
-    #nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
-    #nnfile = joinpath("nn-models", "mnist-relu2050nodes4layers.pt")
+    #nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
+    nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
+    #nnfile = joinpath("nn-models", "mnist-relu2048nodes4layers.pt")
     model, outputs, formulation = get_adversarial_model(
         nnfile, IMAGE_INDEX, ADVERSARIAL_LABEL, THRESHOLD;
         reduced_space = false
@@ -182,26 +182,26 @@ end
     #display(kkt_matrix)
     #profile_solver(MadNLPHSL.Ma27Solver, kkt_matrix)
     #profile_solver(MadNLPHSL.Ma27Solver, nnfile; reduced_space = true)
-    #results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = true)
+    results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = true)
 
-    pivot_vars, pivot_cons = get_vars_cons(formulation)
-    pivot_indices = get_kkt_indices(model, pivot_vars, pivot_cons)
-    pivot_index_set = Set(pivot_indices)
-    @assert kkt_matrix.m == kkt_matrix.n
-    reduced_indices = filter(i -> !(i in pivot_index_set), 1:kkt_matrix.m)
-    P = pivot_indices
-    R = reduced_indices
-    B = kkt_matrix[P, R] + kkt_matrix[R, P]'
-
-    # These are columns that have at least one entry
-    nzcols = map(i -> B.colptr[i] < B.colptr[i+1], 1:length(R))
-    nnzcols = count(nzcols)
-    nnzcol_percent = 100.0 * nnzcols / length(R)
-    nnzcol_percent = Printf.@sprintf("%1.1f", nnzcol_percent)
-    println("$nnzcols out of $(length(R)) columns have entries ($(nnzcol_percent)%)")
+    # The following is for examing specific submatrices in the Schur complement construction
+    #pivot_vars, pivot_cons = get_vars_cons(formulation)
+    #pivot_indices = get_kkt_indices(model, pivot_vars, pivot_cons)
+    #pivot_index_set = Set(pivot_indices)
+    #@assert kkt_matrix.m == kkt_matrix.n
+    #reduced_indices = filter(i -> !(i in pivot_index_set), 1:kkt_matrix.m)
+    #P = pivot_indices
+    #R = reduced_indices
+    #B = kkt_matrix[P, R] + kkt_matrix[R, P]'
+    ## These are columns that have at least one entry
+    #nzcols = map(i -> B.colptr[i] < B.colptr[i+1], 1:length(R))
+    #nnzcols = count(nzcols)
+    #nnzcol_percent = 100.0 * nnzcols / length(R)
+    #nnzcol_percent = Printf.@sprintf("%1.1f", nnzcol_percent)
+    #println("$nnzcols out of $(length(R)) columns have entries ($(nnzcol_percent)%)")
 
     # TODO: We'll want this in a real data structure
-    #println(results.timer)
+    println(results.timer)
 
     PROFILE = false
     if PROFILE
