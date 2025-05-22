@@ -335,17 +335,12 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
         # And over rows appearing in this column
         for k in solver.reduced_solver.csc.colptr[j]:(solver.reduced_solver.csc.colptr[j+1]-1)
             i = solver.reduced_solver.csc.rowval[k]
-            if (i, j) in keys(schur_lookup)
-                solver.reduced_solver.csc.nzval[k] = schur_lookup[i,j]
-            else
-                solver.reduced_solver.csc.nzval[k] = 0.0
-            end
+            solver.reduced_solver.csc.nzval[k] = get(schur_lookup, (i, j), 0.0)
         end
     end
     solver.timer.factorize.update_reduced += time() - t_update_start
     #println("Reduced solver's matrix before factorization:")
     #display(solver.reduced_solver.csc)
-    #display(Matrix(solver.reduced_solver.csc))
     t_reduced_start = time()
     MadNLP.factorize!(solver.reduced_solver)
     solver.timer.factorize.reduced += time() - t_reduced_start
