@@ -141,60 +141,79 @@ function SchurComplementSolver(
     dim = csc.n
     pivot_dim = length(pivot_indices)
     reduced_dim = dim - pivot_dim
-    I, J, V = SparseArrays.findnz(csc)
+    Iorig, Jorig, Vorig = SparseArrays.findnz(csc)
     # Assert that only lower triangular entries are provided.
     # If parts of the upper triangle are provided, our Schur complement below
     # will be incorrect.
-    @assert all(I .>= J)
+    @assert all(Iorig .>= Jorig)
 
-    # For now, the reduced matrix is dense. If we exploit sparsity, we will need
-    # to consider the sparsity structure here.
-    # 
-    # This matrix is recomputed every time we factorize, so we won't need to
-    # update it explicitly.
-    I = IntType[i for i in 1:reduced_dim for j in 1:reduced_dim]
-    J = IntType[j for i in 1:reduced_dim for j in 1:reduced_dim]
-    V = FloatType[0.0 for _ in I]
+    pivot_index_set = Set(pivot_indices)
+    reduced_indices = filter(i -> !(i in pivot_index_set), 1:dim)
+    R = reduced_indices
+    P = pivot_indices
+
+    # The KKT matrix is:
+    # | A B^T |
+    # | B  C  |
+    #
+    # The Schur complement is:
+    #   A - B^T C^-1 B
+    #
+    A = csc[R, R]
+    # We have to extract coordinates from B and B^T because we are not necessarily
+    # given the lower triangle of the KKT matrix in the order we want (R, P).
+    B = csc[P, R] + csc[R, P]'
+
+    # Allocate a matrix containing all possible nonzeros for the reduced matrix
+    #
+    # Here, we assume this is a dense matrix:
+    #I = IntType[i for i in 1:reduced_dim for j in 1:reduced_dim]
+    #J = IntType[j for i in 1:reduced_dim for j in 1:reduced_dim]
+    #V = FloatType[0.0 for _ in I]
+    #
+    # Here, we exploit empty columns in the off-diagonal matrix B to limit possible nonzeros.
+    # We assume C^-1 is completely dense.
+    I, J, V = SparseArrays.findnz(A)
+    # Columns of B with any entries. These are possible nonzeros of (B^T C^-1 B)
+    B_nzcols = filter(i -> B.colptr[i] < B.colptr[i+1], 1:length(R))
+    I_BTCB = IntType[i for i in B_nzcols for j in B_nzcols if i >= j]
+    J_BTCB = IntType[j for i in B_nzcols for j in B_nzcols if i >= j]
+    V_BTCB = FloatType[0.0 for _ in I_BTCB]
+    append!(I, I_BTCB)
+    append!(J, J_BTCB)
+    append!(V, V_BTCB)
     reduced_matrix = SparseArrays.sparse(I, J, V)
 
-    # The pivot indices correspond to variable and constraint indices that have
-    # a nonsingular Jacobian. We pivot on the symmetric block:
-    #
-    # | W_yy  ∇_y g^T |
-    # | ∇_y g         |
-    #
-    # Extracting these indices gives us the lower triangle of this matrix, which
-    # is exactly what we want.
-    remap = zeros(csc.n)
-    for (i, idx) in enumerate(pivot_indices)
-        remap[idx] = i
-    end
-    pivot_index_set = Set(pivot_indices)
-    #col = [j for j in 1:csc.n for _ in colptr[j]:(colptr[j+1]-1)]
-    #row = csc.rowval
-    #val = csc.nzval
-
-    colptr = IntType[1]
-    rowval = IntType[]
-    nzval = FloatType[]
-    for j in 1:csc.n # Columns
-        # This just compresses the columns. It doesn't permute them if that is necessary
-        if j in pivot_index_set
-            pivot_nzs = filter(k -> csc.rowval[k] in pivot_index_set, csc.colptr[j]:(csc.colptr[j+1]-1))
-            append!(rowval, remap[csc.rowval[pivot_nzs]])
-            append!(nzval, csc.nzval[pivot_nzs])
-            push!(colptr, colptr[end]+length(pivot_nzs))
-        end
-    end
-    @assert !any(rowval .== 0)
-
-    pivot_matrix = csc[pivot_indices, pivot_indices]
+    pivot_matrix = csc[P, P]
     schur_solver = SchurSolver(pivot_matrix; logger)
-    # Need to factorize here if I'm going to use this to construct the reduced matrix
+
+    # This is some experimental code for getting the reduced matrix's nonzeros
+    # experimentally, from a factorization.
+    # For some reason, it didn't work. I forget why.
     #MadNLP.factorize!(schur_solver)
     # Assuming that this matrix gives us a superset of all possible nonzeros
     #reduced_matrix = _sparse_schur(csc, pivot_indices)
 
+    # The following unused code is for extracting the pivot submatrix explicitly
+    # (e.g., not using csc[P, P]). I forget why I though this would be necessary...
+    #remap = zeros(csc.n)
+    #for (i, idx) in enumerate(pivot_indices)
+    #    remap[idx] = i
+    #end
+    #colptr = IntType[1]
+    #rowval = IntType[]
+    #nzval = FloatType[]
+    #for j in 1:csc.n # Columns
+    #    # This just compresses the columns. It doesn't permute them if that is necessary
+    #    if j in pivot_index_set
+    #        pivot_nzs = filter(k -> csc.rowval[k] in pivot_index_set, csc.colptr[j]:(csc.colptr[j+1]-1))
+    #        append!(rowval, remap[csc.rowval[pivot_nzs]])
+    #        append!(nzval, csc.nzval[pivot_nzs])
+    #        push!(colptr, colptr[end]+length(pivot_nzs))
+    #    end
+    #end
+    #@assert !any(rowval .== 0)
+    #
     #nnz = length(csc.nzval)
     #pivot_nzs = filter(i->(row[i] in pivot_index_set && col[i] in pivot_index_set), 1:nnz)
     ## Filter nonzeros to only contain the pivot submatrix
@@ -219,7 +238,6 @@ function SchurComplementSolver(
     @assert all(I .>= J)
     # TODO: Allow passing options to subsolver
     reduced_solver = ReducedSolver(reduced_matrix; logger)
-    #schur_solver = SchurSolver(pivot_matrix; logger)
 
     timer.initialize += time() - t_start
 
