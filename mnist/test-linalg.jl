@@ -146,6 +146,7 @@ function test_nlp_solve_tiny()
     )
     JuMP.set_optimizer(m, optimizer)
     JuMP.optimize!(m)
+    JuMP.assert_is_solved_and_feasible(m)
     return
 end
 
@@ -158,12 +159,15 @@ function test_nlp_solve_small_nn()
     optimizer = JuMP.optimizer_with_attributes(
         MadNLP.Optimizer,
         "tol" => 1e-6,
-        "linear_solver" => MadNLPHSL.Ma27Solver,
-        #"linear_solver" => SchurComplementSolver,
+        #"linear_solver" => MadNLPHSL.Ma27Solver,
+        "linear_solver" => SchurComplementSolver,
         "pivot_indices" => pivot_indices,
+        "SchurSolver" => MadNLPHSL.Ma57Solver,
+        "ReducedSolver" => MadNLPHSL.Ma57Solver,
     )
     JuMP.set_optimizer(m, optimizer)
     JuMP.optimize!(m)
+    JuMP.assert_is_solved_and_feasible(m)
     return
 end
 
@@ -199,8 +203,9 @@ end
     ## where we don't match the two samples to tolerance. Using random
     ## numbers in (a) the model and (b) the evaluation points doesn't help either.
     test_solve_repeated_small_nn(; atol = 1e-4)
-    # These tests don't actually check anything at this point. TODO: Check termination
-    # condition and solution.
-    #test_nlp_solve_tiny()
-    #test_nlp_solve_small_nn()
+
+    # These check that the solver status is good and the solution is feasible,
+    # but don't make sure that it's the solution we expect.
+    test_nlp_solve_tiny()
+    test_nlp_solve_small_nn()
 end
