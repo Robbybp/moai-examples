@@ -56,13 +56,14 @@ function _test_solve_repeated(
     constraints::Vector;
     nsamples::Int = 10,
     atol::Float64 = 1e-8,
-)
+    Solver::Type = MadNLPHSL.Ma27Solver,
+) # where T <: AbstractLinearSolver ?
     nlp, kkt_system, kkt_matrix = get_kkt(model)
     varorder, _ = get_var_con_order(model)
     pivot_indices = get_kkt_indices(model, variables, constraints)
     ma27 = MadNLPHSL.Ma27Solver(kkt_matrix)
     pivot_indices = convert(Vector{Int32}, pivot_indices)
-    opt = SchurComplementOptions(; pivot_indices)
+    opt = SchurComplementOptions(; pivot_indices, PivotSolver=Solver, ReducedSolver=Solver)
     schur_solver = SchurComplementSolver(kkt_matrix; opt)
     nvar = NLPModels.get_nvar(nlp)
     for i in 1:nsamples
@@ -121,7 +122,7 @@ end
 
 function test_solve_repeated_tiny()
     m, info = make_tiny_model()
-    _test_solve_repeated(m, info.variables, info.constraints)
+    _test_solve_repeated(m, info.variables, info.constraints; Solver=MadNLPHSL.Ma57Solver)
     return
 end
 
@@ -202,7 +203,7 @@ end
     ## This test is very fragile. We frequently have a couple of samples
     ## where we don't match the two samples to tolerance. Using random
     ## numbers in (a) the model and (b) the evaluation points doesn't help either.
-    test_solve_repeated_small_nn(; atol = 2e-4)
+    test_solve_repeated_small_nn(; atol = 1e-4)
 
     # These check that the solver status is good and the solution is feasible,
     # but don't make sure that it's the solution we expect.
