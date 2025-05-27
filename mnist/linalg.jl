@@ -2,9 +2,41 @@ import SparseArrays
 import LinearAlgebra
 import MadNLP
 import MadNLPHSL
+import HSL
 
 # For some reason, we need to extend this method
 MadNLP.parse_option(::Any, vec::Vector) = vec
+
+function MadNLP.solve!(M::MadNLPHSL.Ma57Solver{T,INT}, rhs::Matrix{T}) where {T,INT}
+    rhsdim, nrhs = rhs.size
+    lwork = INT(rhsdim * nrhs)
+    # TODO: allocate work array in initialization.
+    work = Vector{T}(undef, lwork)
+    HSL.ma57cr(
+        T,
+        INT,
+        one(INT),
+        INT(M.csc.n),
+        M.fact,
+        M.lfact,
+        M.ifact,
+        M.lifact,
+        INT(nrhs),
+        # Sending the RHS array directly to MA57 seems to work.
+        # Both arrays are column-major.
+        rhs,
+        # LRHS. This is the matrix dimension, not NRHS
+        INT(M.csc.n),
+        work,
+        lwork,
+        M.iwork,
+        M.icntl,
+        M.info,
+    )
+    #display(collect(enumerate(M.info)))
+    M.info[1] < 0 && throw(MadNLPHSL.SolveException())
+    return rhs
+end
 
 mutable struct SchurComplementFactorizeTimer
     total::Float64
@@ -56,12 +88,10 @@ mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions
     SchurSolver::Type
     pivot_indices::Vector{INT}
     SchurComplementOptions(;
-        #MadNLPHSL.Ma27Solver,
-        #MadNLPHSL.Ma27Solver,
         # TODO: Make pivot_indices required. We can't instantiate with an empty
         # pivot matrix as our MA27 wrapper will error.
-        ReducedSolver = MadNLPHSL.Ma27Solver,
-        PivotSolver = MadNLPHSL.Ma27Solver,
+        ReducedSolver = MadNLPHSL.Ma57Solver,
+        PivotSolver = MadNLPHSL.Ma57Solver,
         pivot_indices = Int32[],
     ) = new{eltype(pivot_indices)}(
         ReducedSolver,
@@ -319,12 +349,21 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     t_solve_start = time()
     # Iterate over non-empty columns of B
     nonempty_cols = filter(j -> B.colptr[j] < B.colptr[j+1], 1:reduced_dim)
-    for j in nonempty_cols
-        temp = sol[:, j]
-        # view(sol, :, j) isn't working here, even though it seems like it should...
-        MadNLP.solve!(solver.schur_solver, temp)
-        sol[:, j] = temp
+    #for j in nonempty_cols
+    #    temp = sol[:, j]
+    #    # view(sol, :, j) isn't working here, even though it seems like it should...
+    #    MadNLP.solve!(solver.schur_solver, temp)
+    #    sol[:, j] = temp
+    #end
+    # EXPERIMENTAL: Trying to solve with multiple RHS
+    # This seems to work, and is faster.
+    compressed_sol = sol[:, nonempty_cols]
+    MadNLP.solve!(solver.schur_solver, compressed_sol)
+    for (compressed_j, j) in enumerate(nonempty_cols)
+        # Ideally we could put solution directly in sol's memory with e.g., view... 
+        sol[:, j] = compressed_sol[:, compressed_j]
     end
+
     solver.timer.factorize.solve += time() - t_solve_start
     #println("B:")
     #display(B)
