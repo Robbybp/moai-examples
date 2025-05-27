@@ -38,6 +38,16 @@ function MadNLP.solve!(M::MadNLPHSL.Ma57Solver{T,INT}, rhs::Matrix{T}) where {T,
     return rhs
 end
 
+function MadNLP.solve!(M::MadNLP.AbstractLinearSolver, rhs::Matrix)
+    _, nrhs = rhs.size
+    for j in 1:nrhs
+        temp = rhs[:, j]
+        MadNLP.solve!(M, temp)
+        rhs[:, j] = temp
+    end
+    return rhs
+end
+
 mutable struct SchurComplementFactorizeTimer
     total::Float64
     reduced::Float64
@@ -90,8 +100,8 @@ mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions
     SchurComplementOptions(;
         # TODO: Make pivot_indices required. We can't instantiate with an empty
         # pivot matrix as our MA27 wrapper will error.
-        ReducedSolver = MadNLPHSL.Ma57Solver,
-        PivotSolver = MadNLPHSL.Ma57Solver,
+        ReducedSolver = MadNLPHSL.Ma27Solver,
+        PivotSolver = MadNLPHSL.Ma27Solver,
         pivot_indices = Int32[],
     ) = new{eltype(pivot_indices)}(
         ReducedSolver,
@@ -349,20 +359,11 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     t_solve_start = time()
     # Iterate over non-empty columns of B
     nonempty_cols = filter(j -> B.colptr[j] < B.colptr[j+1], 1:reduced_dim)
-    #for j in nonempty_cols
-    #    temp = sol[:, j]
-    #    # view(sol, :, j) isn't working here, even though it seems like it should...
-    #    MadNLP.solve!(solver.schur_solver, temp)
-    #    sol[:, j] = temp
-    #end
-    # EXPERIMENTAL: Trying to solve with multiple RHS
-    # This seems to work, and is faster.
     compressed_sol = sol[:, nonempty_cols]
+    # Backsolve over a matrix of RHSs. Note that this produces dense solutions
+    # and relies on local extensions of `MadNLP.solve!`.
     MadNLP.solve!(solver.schur_solver, compressed_sol)
-    for (compressed_j, j) in enumerate(nonempty_cols)
-        # Ideally we could put solution directly in sol's memory with e.g., view... 
-        sol[:, j] = compressed_sol[:, compressed_j]
-    end
+    sol[:, nonempty_cols] = compressed_sol
 
     solver.timer.factorize.solve += time() - t_solve_start
     #println("B:")
