@@ -34,13 +34,17 @@ ma48_default_icntl(INT) = INT[
 mutable struct Ma48Solver{T,INT} <: MadNLP.AbstractLinearSolver{T}
     csc::SparseArrays.SparseMatrixCSC{T,INT}
 
-    icntl::Vector{INT}
-    cntl::Vector{T}
+    ICNTL::Vector{INT}
+    CNTL::Vector{T}
 
-    info::Vector{INT}
-    rinfo::Vector{T}
+    INFO::Vector{INT}
+    RINFO::Vector{T}
 
-    keep::Vector{INT}
+    A::Vector{T}
+    IRN::Vector{INT}
+    JCN::Vector{INT}
+
+    KEEP::Vector{INT}
 end
 
 function Ma48Solver(
@@ -49,7 +53,8 @@ function Ma48Solver(
 )
     I, J, V = SparseArrays.findnz(csc)
 
-    # TODO: Populate reasonable cntl/icntl
+    # Note that I didn't finish implementing these methods for the defaults...
+    # I got lazy and decided to just use ma48id...
     #CNTL = ma48_default_cntl(Float64)
     #ICNTL = ma48_default_icntl(Int32)
     ## Make sure I can count...
@@ -70,7 +75,7 @@ function Ma48Solver(
     A[1:NE] = V
     IRN[1:NE] = I
     JCN[1:NE] = J
-    LKEEP = Int32(M + 5*N + 4*floor(N/ICNTL[6]) + 7)
+    LKEEP = Int32(M + 5*N + floor(4*N/ICNTL[6]) + 7)
     KEEP = Vector{Int32}(undef, LKEEP)
     LIW = Int32(6*M + 3*N)
     # Otherwise, we must initialize IW, communicating the columns that are
@@ -104,15 +109,108 @@ function Ma48Solver(
         CNTL,
         INFO,
         RINFO,
+        A,
+        IRN,
+        JCN,
         KEEP,
     )
 end
 
-function MadNLP.factorize!(M::Ma48Solver{T,INT}) where {T,INT}
+function MadNLP.factorize!(solver::Ma48Solver{T,INT}) where {T,INT}
+    csc = solver.csc
+    _, _, V = SparseArrays.findnz(csc)
+
+    JOB = INT(1) # "normal call", not a "fast call"
+    M = INT(csc.m)
+    N = INT(csc.n)
+    NE = INT(SparseArrays.nnz(csc))
+    LA = INT(5 * NE) # Minimum = 2*NE. "Very problem dependent", according to docs
+    # TODO: Add a "LA factor" option
+    A = Vector{T}(undef, LA)
+    IRN = Vector{INT}(undef, LA)
+    JCN = Vector{INT}(undef, NE)
+    A[1:NE] = V
+    # This is what the docs say to do. Don't ask me...
+    IRN[1:NE] = solver.IRN[1:NE]
+    JCN[1:NE] = solver.JCN[1:NE]
+    # TODO: Allocate W and IW once in initialization
+    W = Vector{INT}(undef, M)
+    LIW = INT(2*M + 2*N)
+    IW = Vector{INT}(undef, LIW)
+    HSL.ma48bd(
+        M,
+        N,
+        NE,
+        JOB,
+        LA,
+        A,
+        IRN,
+        JCN,
+        solver.KEEP,
+        solver.CNTL,
+        solver.ICNTL,
+        W,
+        IW,
+        solver.INFO,
+        solver.RINFO,
+    )
+    # TODO: Check for memory error and factorize in a loop
+    if solver.INFO[1] != 0
+        throw(FactorizationException())
+    end
+    # TODO: We should just use solver.A directly. This will require allocating
+    # the correct amount of memory for A at the end of the constructor above.
+    solver.A = A
+    solver.IRN = IRN
+    # For some reason, JCN isn't necessary to cache for the backsolve.
+    return solver
 end
 
-function MadNLP.solve!(M::Ma48Solver{T,INT}, rhs::Vector{T}) where {T,INT}
+function MadNLP.solve!(solver::Ma48Solver{T,INT}, rhs::Vector{T}) where {T,INT}
+    TRANS = INT(0)
+    JOB = INT(1) # Whether we want iterative refinement and/or error estimation. (1=>no)
+    M = INT(csc.m)
+    N = INT(csc.n)
+    NE = INT(SparseArrays.nnz(csc))
+    # TODO: Most of this work can probably be avoided here. (I.e., arrays can be
+    # allocated during initialization.)
+    LA = INT(5 * NE)
+    X = Vector{T}(undef, N)
+    ERROR = Vector{T}(undef, 3)
+    LW = INT(3*M + N)
+    W = Vector{T}(undef, LW)
+    IW = Vector{INT}(undef, M)
+    HSL.ma48cd(
+        M,
+        N,
+        TRANS,
+        JOB,
+        LA,
+        solver.A,
+        solver.IRN,
+        solver.KEEP,
+        solver.CNTL,
+        solver.ICNTL,
+        rhs,
+        X,
+        ERROR,
+        W,
+        IW,
+        solver.INFO,
+    )
+    if solver.INFO[1] != 0
+        throw(SolveException())
+    end
+    rhs[1:M] = X # Explicitly overwrite the RHS, since apparently this isn't done automatically
+    return X
 end
 
-function MadNLP.solve!(M::Ma48Solver{T,INT}, rhs::Matrix{T}) where {T,INT}
+function MadNLP.solve!(solver::Ma48Solver{T,INT}, rhs::Matrix{T}) where {T,INT}
+    rhsdim, nrhs = rhs.size
+    for j in 1:nrhs
+        temp = rhs[:, j]
+        MadNLP.solve!(solver, temp)
+        rhs[:, j] = temp
+    end
+    return rhs
 end
