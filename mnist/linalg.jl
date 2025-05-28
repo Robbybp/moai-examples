@@ -483,3 +483,16 @@ MadNLP.default_options(::Type{SchurComplementSolver}) = SchurComplementOptions()
 # How to branch on subsolver types here?
 # Parameterize the SchurComplementSolver type by its subsolver types?
 MadNLP.is_supported(::Type{SchurComplementSolver}, ::Type{T}) where T <: AbstractFloat = true
+
+function fill_upper_triangle(csc::SparseArrays.SparseMatrixCSC)
+    I, J, V = SparseArrays.findnz(csc)
+    strict_lower = filter(k -> I[k] > J[k], 1:length(I))
+    upper_I = J[strict_lower]
+    upper_J = I[strict_lower]
+    upper_V = V[strict_lower]
+    append!(I, upper_I)
+    append!(J, upper_J)
+    append!(V, upper_V)
+    new = SparseArrays.sparse(I, J, V)
+    return new
+end

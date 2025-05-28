@@ -101,19 +101,6 @@ function solve!(csc::SparseArrays.SparseMatrixCSC, rhs::Matrix)
     return
 end
 
-function fill_upper_triangle(csc::SparseArrays.SparseMatrixCSC)
-    I, J, V = SparseArrays.findnz(csc)
-    strict_lower = filter(k -> I[k] > J[k], 1:length(I))
-    upper_I = J[strict_lower]
-    upper_J = I[strict_lower]
-    upper_V = V[strict_lower]
-    append!(I, upper_I)
-    append!(J, upper_J)
-    append!(V, upper_V)
-    new = SparseArrays.sparse(I, J, V)
-    return new
-end
-
 IMAGE_INDEX = 7
 ADVERSARIAL_LABEL = 1
 THRESHOLD = 0.6
