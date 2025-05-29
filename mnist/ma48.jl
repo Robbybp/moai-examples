@@ -167,6 +167,7 @@ function MadNLP.factorize!(solver::Ma48Solver{T,INT}) where {T,INT}
 end
 
 function MadNLP.solve!(solver::Ma48Solver{T,INT}, rhs::Vector{T}) where {T,INT}
+    csc = solver.csc
     TRANS = INT(0)
     JOB = INT(1) # Whether we want iterative refinement and/or error estimation. (1=>no)
     M = INT(csc.m)

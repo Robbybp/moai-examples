@@ -17,6 +17,7 @@ include("linalg.jl")
 include("formulation.jl")
 include("nlpmodels.jl")
 include("models.jl")
+include("ma48.jl")
 
 # TODO: Accept a matrix as the RHS
 function solve_with_ma57(csc::SparseArrays.SparseMatrixCSC, rhs::Matrix)
@@ -87,6 +88,28 @@ function solve_with_umfpack(
     return res
 end
 
+function solve_with_ma48(csc::SparseArrays.SparseMatrixCSC, rhs::Matrix)
+    _t = time()
+    solver = Ma48Solver(csc)
+    t_init = time() - _t
+    _t = time()
+    MadNLP.factorize!(solver)
+    t_factorize = time() - _t
+    sol = copy(rhs)
+    _t = time()
+    MadNLP.solve!(solver, sol)
+    t_solve = time() - _t
+    res = (;
+        time = (;
+            initialize = t_init,
+            factorize = t_factorize,
+            solve = t_solve,
+        ),
+        solution = sol,
+    )
+    return res
+end
+
 mutable struct BlockTriangularSolver
 end
 
@@ -106,8 +129,8 @@ ADVERSARIAL_LABEL = 1
 THRESHOLD = 0.6
 
 #nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
-nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
-#nnfile = joinpath("nn-models", "mnist-relu2048nodes4layers.pt")
+#nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
+nnfile = joinpath("nn-models", "mnist-relu2048nodes4layers.pt")
 model, outputs, formulation = get_adversarial_model(
     nnfile, IMAGE_INDEX, ADVERSARIAL_LABEL, THRESHOLD;
     reduced_space = false
@@ -171,25 +194,40 @@ end
 #display(sol)
 
 C_full = fill_upper_triangle(C)
-println("Solving non-regularized matrix with UMFPACK")
-res_umfpack = solve_with_umfpack(C_full, RHS)
-println("Factorize/solve times")
-println("---------------------")
-display(res_umfpack.time)
 
-# Here, I'm making sure I can put C into BT order
-#println("Full symmetric pivot matrix:")
-#display(C_full)
+println("Solving non-regularized system with MA48")
+res_ma48 = solve_with_ma48(C_full, RHS)
+println("Initialize/factorize/solve times")
+println("--------------------------------")
+display(res_ma48.time)
 
-igraph = MPIN.IncidenceGraphInterface(C_full)
-blocks = MPIN.block_triangularize(igraph)
-row_order = vcat([cb for (cb, vb) in blocks]...)
-col_order = vcat([vb for (cb, vb) in blocks]...)
-C_bt = C_full[row_order, col_order]
-println("Pivot matrix in BT form")
-display(C_bt)
+CHECK_UMFPACK = false
+if CHECK_UMFPACK
+    println("Solving non-regularized matrix with UMFPACK")
+    res_umfpack = solve_with_umfpack(C_full, RHS)
+    println("Factorize/solve times")
+    println("---------------------")
+    display(res_umfpack.time)
+end
 
-lu = LinearAlgebra.lu(C_bt)
-rhs = ones(C_bt.m)
-x = lu \ rhs
-display(lu)
+CHECK_BTF = true
+if CHECK_BTF
+    # Here, I'm making sure I can put C into BT order
+    #println("Full symmetric pivot matrix:")
+    #display(C_full)
+    _t = time()
+    igraph = MPIN.IncidenceGraphInterface(C_full)
+    blocks = MPIN.block_triangularize(igraph)
+    t_bt = time() - _t
+    println("For reference, the time to compute BTF is $t_bt")
+    row_order = vcat([cb for (cb, vb) in blocks]...)
+    col_order = vcat([vb for (cb, vb) in blocks]...)
+    C_bt = C_full[row_order, col_order]
+    println("Pivot matrix in BT form")
+    display(C_bt)
+    
+    lu = LinearAlgebra.lu(C_bt)
+    rhs = ones(C_bt.m)
+    x = lu \ rhs
+    display(lu)
+end
