@@ -49,7 +49,8 @@ end
 
 function Ma48Solver(
     # MA48 doesn't have a "generic" wrapper yet, so we only support double and int32
-    csc::SparseArrays.SparseMatrixCSC{Float64,Int32},
+    csc::SparseArrays.SparseMatrixCSC{Float64,Int32};
+    min_blocksize::Int32 = Int32(1),
 )
     I, J, V = SparseArrays.findnz(csc)
 
@@ -63,6 +64,8 @@ function Ma48Solver(
     CNTL = Vector{Float64}(undef, 10)
     ICNTL = Vector{Int32}(undef, 20)
     HSL.ma48id(CNTL, ICNTL)
+
+    ICNTL[6] = min_blocksize
 
     JOB = Int32(1) # Compute a pivot sequence; don't restricti pivoting to diagonal
     M = Int32(csc.m)
