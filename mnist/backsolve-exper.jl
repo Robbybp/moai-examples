@@ -166,8 +166,8 @@ ADVERSARIAL_LABEL = 1
 THRESHOLD = 0.6
 
 #nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
-#nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
-nnfile = joinpath("nn-models", "mnist-relu2048nodes4layers.pt")
+nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
+#nnfile = joinpath("nn-models", "mnist-relu2048nodes4layers.pt")
 model, outputs, formulation = get_adversarial_model(
     nnfile, IMAGE_INDEX, ADVERSARIAL_LABEL, THRESHOLD;
     reduced_space = false
@@ -201,7 +201,7 @@ C = SparseArrays.sparse(I, J, V, C_orig.m, C_orig.n)
 println("Decomposable pivot matrix:")
 display(C)
 
-nrhs = 1000
+nrhs = 100
 RHS = ones(C_orig.m, nrhs)
 
 CHECK_MA57 = false
@@ -295,10 +295,14 @@ end
 _t = time()
 btsolver = BlockTriangularSolver(C_full)
 t_init = time() - _t
+println("Initialize: $t_init")
 
 _t = time()
 MadNLP.factorize!(btsolver)
 t_factorize = time() - _t
-
-println("Initialize: $t_init")
 println("Factorize:  $t_factorize")
+
+_t = time()
+solve!(btsolver, RHS)
+t_solve = time() - _t
+println("Solve:      $t_solve")
