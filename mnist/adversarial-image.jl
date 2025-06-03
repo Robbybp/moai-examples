@@ -33,12 +33,12 @@ OPTIMIZER_ATTRIBUTES_LOOKUP = Dict(
         "print_user_options" => "yes",
         "print_timing_statistics" => "yes",
     ],
-    "madnlp" => [
-        "tol" => 1e-6,
-        "linear_solver" => MadNLPHSL.Ma27Solver,
-        "max_iter" => 5,
-    ],
-    #"madnlp" => ["tol" => 1e-6, "linear_solver" => SchurComplementSolver],
+    #"madnlp" => [
+    #    "tol" => 1e-6,
+    #    "linear_solver" => MadNLPHSL.Ma27Solver,
+    #    "max_iter" => 5,
+    #],
+    "madnlp" => ["tol" => 1e-6, "linear_solver" => SchurComplementSolver],
 )
 
 ADVERSARIAL_LABEL_LOOKUP = Dict(
@@ -152,12 +152,15 @@ function find_adversarial_image(
         OPTIMIZER_ATTRIBUTES_LOOKUP[optimizer_name]...,
     )
     JuMP.set_optimizer(m, optimizer)
-    if false && optimizer_name == "madnlp"
+    # NOTE: Here I'm assuming that we've specified "linear_solver"
+    LinearSolver = Dict(OPTIMIZER_ATTRIBUTES_LOOKUP[optimizer_name])["linear_solver"]
+    if optimizer_name == "madnlp" && LinearSolver === SchurComplementSolver
         # TODO: Make linear solver and Schur decomposition a configurable option
         variables, constraints = get_vars_cons(formulation)
         pivot_indices = get_kkt_indices(m, variables, constraints)
-        JuMP.set_optimizer_attribute(m, "linear_solver", SchurComplementSolver)
         JuMP.set_optimizer_attribute(m, "pivot_indices", pivot_indices)
+        JuMP.set_optimizer_attribute(m, "SchurSolver", MadNLPHSL.Ma57Solver)
+        JuMP.set_optimizer_attribute(m, "ReducedSolver", MadNLPHSL.Ma57Solver)
     end
     JuMP.optimize!(m)
 
