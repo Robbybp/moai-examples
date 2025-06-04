@@ -303,6 +303,133 @@ t_factorize = time() - _t
 println("Factorize:  $t_factorize")
 
 _t = time()
-solve!(btsolver, RHS)
-t_solve = time() - _t
-println("Solve:      $t_solve")
+csc = btsolver.csc
+blocks = btsolver.blocks
+factors = btsolver.factors
+
+# We partition the RHS by row blocks of the original matrix
+rhs_blocks = map(b -> view(RHS, b[1], :), blocks)
+nblocks = length(blocks)
+# A couple options to populate dag:
+# - quadratic loop over blocks
+# - loop over NNZ
+# TODO: cache these nz entries
+# (Note that I can't cache V, so I'll need to run findnz here)
+I, J, V = SparseArrays.findnz(csc)
+nnz = SparseArrays.nnz(csc)
+
+# TODO: Cache block maps on the BTSolver struct 
+row_block_map = [(0,0) for _ in 1:csc.m]
+col_block_map = [(0,0) for _ in 1:csc.n]
+for (i, b) in enumerate(blocks)
+    for (j, (r, c)) in enumerate(zip(b...))
+        row_block_map[r] = (i, j)
+        col_block_map[c] = (i, j)
+    end
+end
+dt = time() - _t
+println("[$dt] findnz and initialize block maps")
+
+rowblock_by_nz = map(k -> row_block_map[I[k]][1], 1:nnz)
+colblock_by_nz = map(k -> col_block_map[J[k]][1], 1:nnz)
+dt = time() - _t
+println("[$dt] Blocks by NZ arrays")
+
+# This *is* the DAG. Instead of an adjacency list, it's an edgelist.
+# I can sort this to get, basically, an adjacency list.
+dag = collect(zip(colblock_by_nz, rowblock_by_nz))
+#dag = map(k -> (col_block_map[J[k]][1], row_block_map[I[k]][1]), 1:nnz)
+dt = time() - _t
+println("[$dt] Build DAG with duplicate edges")
+unique!(dag)
+dt = time() - _t
+println("[$dt] Filter duplicate entries")
+filter!(e -> e[1] != e[2], dag)
+dt = time() - _t
+println("[$dt] Filter self-loops")
+# Not sure if this will be necessary...
+sort!(dag)
+dt = time() - _t
+println("[$dt] Sort DAG edges")
+
+nedges = length(dag)
+
+# This is fairly expensive (5 s), but up to this point, everything can be done
+# in inialization.
+
+# Filtering nonzeros is also expensive, but again, can be done in initialization
+# This is actually so expensive (almost 4 s) that it might not be worth doing
+#off_diagonal_nz = filter(k -> row_block_map[I[k]][1] != col_block_map[J[k]][1], 1:nnz)
+off_diagonal_nz = filter(k -> rowblock_by_nz[k] != colblock_by_nz[k], 1:nnz)
+nnz_offdiag = length(off_diagonal_nz)
+dt = time() - _t
+println("[$dt] Filter NZ")
+# We sort by col block first because we will access these values first by
+# col block, then by row block.
+
+nrow = csc.m
+ncol = csc.n
+@assert nrow == ncol
+nblock = length(blocks)
+
+# This is expensive (about 4 s), but can also be moved to initialization.
+# Without the extra indirection (from e.g., col_block_map[J[k]][1]), this can get
+# heavily optimized and now only takes 1 s.
+blockidx_by_nz = colblock_by_nz[off_diagonal_nz] * nblock .+ rowblock_by_nz[off_diagonal_nz]
+off_diag_nzperm = sortperm(blockidx_by_nz)
+dt = time() - _t
+println("[$dt] Sort nonzero entries")
+sorted_I = I[off_diagonal_nz][off_diag_nzperm]
+sorted_J = J[off_diagonal_nz][off_diag_nzperm]
+dt = time() - _t
+println("[$dt] Sort I/J by (col block, row block)")
+
+# This is the only thing so far that has to be done in the factorization
+# or solve (when we have new matrix values).
+sorted_V = V[off_diagonal_nz][off_diag_nzperm]
+dt = time() - _t
+println("[$dt] Sort V")
+
+blockidx_by_sorted_nz = blockidx_by_nz[off_diag_nzperm]
+# Now I semi-efficiently have the sorted nonzeros. I just need to get the start and
+# end positions for each edge.
+#
+# These are positions in the sorted entries where either block changes
+blockstarts = filter(k -> k == 1 || blockidx_by_sorted_nz[k] != blockidx_by_sorted_nz[k-1], 1:nnz_offdiag)
+# If my math is correct, this has the same length as our edgelist
+@assert nedges == length(blockstarts)
+blockends = map(k -> blockstarts[k+1]-1, 1:(nedges-1))
+push!(blockends, nnz_offdiag)
+# Assumming we have sorted off-diagonal blocks correctly in both the edgelist and
+# the nonzero indices, these should be in the same order.
+# Now the question is: How do I want to store the off-diagonal matrices.
+dt = time() - _t
+println("[$dt] Partitioning nonzeros into off-diagonal blocks")
+
+#off_diagonal = map(
+#    # If edgedata exists primarily to construct these off-diagonal blocks,
+#    # I just need it to contain the start and end indices
+#    e -> (sorted_I[e[1]:e[2]], sorted_J[e[1]:e[2]], sorted_V[e[1];e[2]]),
+#    # edgedata is an array of some imaginary data structure that contains
+#    # the information I need
+#    edgedata,
+#)
+
+ADJACENCY_LIST = false
+if ADJACENCY_LIST
+    dag = [Int[] for _ in blocks]
+    for k in 1:nnz
+        push!(dag[col_block_map[J[k]][1]], row_block_map[I[k]][1])
+    end
+    # Building the adjacency list is also expensive (about 4 s)
+    dt = time() - _t
+    println("[$dt] Build DAG as a vector-of-vectors (adjacency list)")
+    dag = map(unique, dag)
+    dt = time() - _t
+    println("[$dt] Filter duplicates from adjacency list")
+end
+
+#_t = time()
+#solve!(btsolver, RHS)
+#t_solve = time() - _t
+#println("Solve:      $t_solve")

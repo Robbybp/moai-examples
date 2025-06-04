@@ -165,6 +165,7 @@ function solve!(solver::BlockTriangularSolver, rhs::Matrix)
     # - quadratic loop over blocks
     # - loop over NNZ
     # TODO: cache these nz entries
+    # (Note that I can't cache V, so I'll need to run findnz here)
     I, J, V = SparseArrays.findnz(csc)
     nnz = SparseArrays.nnz(csc)
 
@@ -187,6 +188,11 @@ function solve!(solver::BlockTriangularSolver, rhs::Matrix)
     dt = time() - _t
     println("[$dt] Build DAG")
     dag = map(unique, dag)
+    nedges = sum(length, dag)
+    # Global edgelist is 1:nedges, but I need the partition by source node
+    # This is all making me think that a vector-of-vectors is not the right
+    # data structure for my DAG.
+
     # Get a lookup from rowblock, colblock pairs to the index of the edge within
     # the colblock's adjacency list.
     # i is the rowblock index, j is the colblock index
@@ -198,11 +204,29 @@ function solve!(solver::BlockTriangularSolver, rhs::Matrix)
     off_diagonal_nz = filter(k -> row_block_map[I[k]][1] != col_block_map[J[k]][1], 1:nnz)
     dt = time() - _t
     println("[$dt] Allocate matrices and filter NZs")
+
+    # I'd like an approach that iterates over the DAG's edges, but that doesn't have
+    # to extract CSC indices for each edge.
+    off_diagonal = map(
+        # If edgedata exists primarily to construct these off-diagonal blocks,
+        # I just need it to contain the start and end indices
+        e -> (sorted_I[e[1]:e[2]], sorted_J[e[1]:e[2]], sorted_V[e[1];e[2]]),
+        # edgedata is an array of some imaginary data structure that contains
+        # the information I need
+        edgedata,
+    )
+    # I'll also need to know which edge corresponds to a particular DAG entry.
+    # A data structure with the same shape as `dag` that contains indices into
+    # the global edge list.
+
+    # This approach doesn't seem horrible. In some sense, doing a single
+    # loop over nonzero values is the best I can do.
+    # How does this look in an imaginary scenario where I don't need dict lookup?
     for k in off_diagonal_nz
         row_block, row_idx = row_block_map[I[k]]
         col_block, col_idx = col_block_map[J[k]]
-        edge_idx = edge_indices[row_block, col_block]
-        off_diagonal[col_block][edge_idx][row_idx, col_idx] += V[k]
+        #edge_idx = edge_indices[row_block, col_block]
+        off_diagonal[col_block][1][row_idx, col_idx] += V[k]
     end
     #off_diagonal = [map(i -> csc[blocks[i][1], blocks[j][2]], adj) for (j, adj) in enumerate(dag)]
     dt = time() - _t
