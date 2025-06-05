@@ -414,6 +414,48 @@ println("[$dt] Partitioning nonzeros into off-diagonal blocks")
 #    # the information I need
 #    edgedata,
 #)
+slices = map(e -> (blockstarts[e]:blockends[e]), 1:nedges)
+# edges are (colblock, rowblock), while blocks are (rows, cols)
+
+# Map row/col coordinates to their positions-within-the-block
+local_I = map(k -> row_block_map[sorted_I[k]][2], 1:nnz_offdiag)
+local_J = map(k -> col_block_map[sorted_J[k]][2], 1:nnz_offdiag)
+# I could also make these views
+I_by_edge = map(s -> local_I[s], slices)
+J_by_edge = map(s -> local_J[s], slices)
+V_by_edge = map(s -> sorted_V[s], slices)
+#I_views = map(s -> view(local_I, s), slices)
+#J_views = map(s -> view(local_J, s), slices)
+#V_views = map(s -> view(sorted_V, s), slices)
+dt = time() - _t
+println("[$dt] Construct local indices, by edge")
+
+# These implementations are bad
+#off_diagonal = map(e -> csc[blocks[e[2]][1], blocks[e[1]][2]], 1:nedges)
+#off_diagonal = map(e -> SparseArrays.sparse(I_views[e], J_views[e], V_views[e]), 1:nedges)
+# TODO: remove some of the indirection here
+blocksizes = map(b -> length(b[1]), blocks)
+rowblock_size_by_edge = map(e -> blocksizes[e[2]], dag)
+colblock_size_by_edge = map(e -> blocksizes[e[1]], dag)
+off_diagonal = map(e -> SparseArrays.sparse(I_by_edge[e], J_by_edge[e], V_by_edge[e], rowblock_size_by_edge[e], colblock_size_by_edge[e]), 1:nedges)
+dt = time() - _t
+println("[$dt] Construct sparse matrices to hold off-diagonal blocks")
+
+# What does my backsolve loop look like?
+# Can I just loop over edges, or do I need the adjacency list?
+iprev = 0
+for (e, (i, j)) in enumerate(dag)
+    # If this is the first time we've encountered i as a source node,
+    # solve and store the solution in RHS
+    if i != iprev
+        solve!(factors[i], rhs_blocks[i])
+    end
+    # Used the cached solution X_i (in RHS_i) to update the RHS
+    # of the destination node j
+    rhs_blocks[j] .-= off_diagonal[e] * rhs_blocks[i]
+end
+dt = time() - _t
+println("[$dt] Backsolve")
 
 ADJACENCY_LIST = false
 if ADJACENCY_LIST
