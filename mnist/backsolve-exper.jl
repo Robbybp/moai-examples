@@ -437,9 +437,35 @@ println("[$dt] Construct local indices, by edge")
 blocksizes = map(b -> length(b[1]), blocks)
 rowblock_size_by_edge = map(e -> blocksizes[e[2]], dag)
 colblock_size_by_edge = map(e -> blocksizes[e[1]], dag)
-off_diagonal = map(e -> SparseArrays.sparse(I_by_edge[e], J_by_edge[e], V_by_edge[e], rowblock_size_by_edge[e], colblock_size_by_edge[e]), 1:nedges)
+
+# How could this be broken down to avoid allocations in the backsolve?
+# I have I/J by edge already.
+# - csc comes in
+# - I extract NZ with findnz -- is my life easier if I just sorted CSC directly?
+#   findnz preserves row and nz order, so life is good
+# - nzval gets sorted
+# - I transfer these into a new array
+# - V_by_edge, for each edge, is just an unsafe_wrap around part of this array
+# - My sparse matrices are constructed using these unsafe_wraps, so they're updated
+#   in-place -- How do I do this? sparse seems to copy its inputs by default
+# - There must be some alternative to constructing an entire matrix just to set nzval
+#   I think I can just use this with .=
+#   This should be pretty fast
+off_diagonal = map(
+    e -> SparseArrays.sparse(
+        I_by_edge[e], J_by_edge[e], V_by_edge[e], rowblock_size_by_edge[e], colblock_size_by_edge[e]
+    ),
+    1:nedges,
+)
 dt = time() - _t
 println("[$dt] Construct sparse matrices to hold off-diagonal blocks")
+
+for e in 1:nedges
+    # There must be a way to do this with less overhead.
+    off_diagonal[e].nzval .= V_by_edge[e]
+end
+dt = time() - _t
+println("[$dt] Update nzval")
 
 # What does my backsolve loop look like?
 # Can I just loop over edges, or do I need the adjacency list?
