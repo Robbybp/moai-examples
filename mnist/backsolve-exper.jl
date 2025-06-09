@@ -298,190 +298,198 @@ t_init = time() - _t
 println("Initialize: $t_init")
 
 _t = time()
-MadNLP.factorize!(btsolver)
+factorize!(btsolver)
 t_factorize = time() - _t
 println("Factorize:  $t_factorize")
 
-_t = time()
-csc = btsolver.csc
-blocks = btsolver.blocks
-factors = btsolver.factors
+MANUAL_BACKSOLVE = false
+if MANUAL_BACKSOLVE
+    _t = time()
+    csc = btsolver.csc
+    blocks = btsolver.blocks
+    factors = btsolver.factors
 
-# We partition the RHS by row blocks of the original matrix
-rhs_blocks = map(b -> view(RHS, b[1], :), blocks)
-nblocks = length(blocks)
-# A couple options to populate dag:
-# - quadratic loop over blocks
-# - loop over NNZ
-# TODO: cache these nz entries
-# (Note that I can't cache V, so I'll need to run findnz here)
-I, J, V = SparseArrays.findnz(csc)
-nnz = SparseArrays.nnz(csc)
+    # We partition the RHS by row blocks of the original matrix
+    rhs_blocks = map(b -> view(RHS, b[1], :), blocks)
+    nblocks = length(blocks)
+    # A couple options to populate dag:
+    # - quadratic loop over blocks
+    # - loop over NNZ
+    # TODO: cache these nz entries
+    # (Note that I can't cache V, so I'll need to run findnz here)
+    I, J, V = SparseArrays.findnz(csc)
+    nnz = SparseArrays.nnz(csc)
 
-# TODO: Cache block maps on the BTSolver struct 
-row_block_map = [(0,0) for _ in 1:csc.m]
-col_block_map = [(0,0) for _ in 1:csc.n]
-for (i, b) in enumerate(blocks)
-    for (j, (r, c)) in enumerate(zip(b...))
-        row_block_map[r] = (i, j)
-        col_block_map[c] = (i, j)
+    # TODO: Cache block maps on the BTSolver struct 
+    row_block_map = [(0,0) for _ in 1:csc.m]
+    col_block_map = [(0,0) for _ in 1:csc.n]
+    for (i, b) in enumerate(blocks)
+        for (j, (r, c)) in enumerate(zip(b...))
+            row_block_map[r] = (i, j)
+            col_block_map[c] = (i, j)
+        end
     end
-end
-dt = time() - _t
-println("[$dt] findnz and initialize block maps")
+    dt = time() - _t
+    println("[$dt] findnz and initialize block maps")
 
-rowblock_by_nz = map(k -> row_block_map[I[k]][1], 1:nnz)
-colblock_by_nz = map(k -> col_block_map[J[k]][1], 1:nnz)
-dt = time() - _t
-println("[$dt] Blocks by NZ arrays")
+    rowblock_by_nz = map(k -> row_block_map[I[k]][1], 1:nnz)
+    colblock_by_nz = map(k -> col_block_map[J[k]][1], 1:nnz)
+    dt = time() - _t
+    println("[$dt] Blocks by NZ arrays")
 
-# This *is* the DAG. Instead of an adjacency list, it's an edgelist.
-# I can sort this to get, basically, an adjacency list.
-dag = collect(zip(colblock_by_nz, rowblock_by_nz))
-#dag = map(k -> (col_block_map[J[k]][1], row_block_map[I[k]][1]), 1:nnz)
-dt = time() - _t
-println("[$dt] Build DAG with duplicate edges")
-unique!(dag)
-dt = time() - _t
-println("[$dt] Filter duplicate entries")
-filter!(e -> e[1] != e[2], dag)
-dt = time() - _t
-println("[$dt] Filter self-loops")
-# Not sure if this will be necessary...
-sort!(dag)
-dt = time() - _t
-println("[$dt] Sort DAG edges")
+    # This *is* the DAG. Instead of an adjacency list, it's an edgelist.
+    # I can sort this to get, basically, an adjacency list.
+    dag = collect(zip(colblock_by_nz, rowblock_by_nz))
+    #dag = map(k -> (col_block_map[J[k]][1], row_block_map[I[k]][1]), 1:nnz)
+    dt = time() - _t
+    println("[$dt] Build DAG with duplicate edges")
+    unique!(dag)
+    dt = time() - _t
+    println("[$dt] Filter duplicate entries")
+    filter!(e -> e[1] != e[2], dag)
+    dt = time() - _t
+    println("[$dt] Filter self-loops")
+    # Not sure if this will be necessary...
+    sort!(dag)
+    dt = time() - _t
+    println("[$dt] Sort DAG edges")
 
-nedges = length(dag)
+    nedges = length(dag)
 
-# This is fairly expensive (5 s), but up to this point, everything can be done
-# in inialization.
+    # This is fairly expensive (5 s), but up to this point, everything can be done
+    # in inialization.
 
-# Filtering nonzeros is also expensive, but again, can be done in initialization
-# This is actually so expensive (almost 4 s) that it might not be worth doing
-#off_diagonal_nz = filter(k -> row_block_map[I[k]][1] != col_block_map[J[k]][1], 1:nnz)
-off_diagonal_nz = filter(k -> rowblock_by_nz[k] != colblock_by_nz[k], 1:nnz)
-nnz_offdiag = length(off_diagonal_nz)
-dt = time() - _t
-println("[$dt] Filter NZ")
-# We sort by col block first because we will access these values first by
-# col block, then by row block.
+    # Filtering nonzeros is also expensive, but again, can be done in initialization
+    # This is actually so expensive (almost 4 s) that it might not be worth doing
+    #off_diagonal_nz = filter(k -> row_block_map[I[k]][1] != col_block_map[J[k]][1], 1:nnz)
+    off_diagonal_nz = filter(k -> rowblock_by_nz[k] != colblock_by_nz[k], 1:nnz)
+    nnz_offdiag = length(off_diagonal_nz)
+    dt = time() - _t
+    println("[$dt] Filter NZ")
+    # We sort by col block first because we will access these values first by
+    # col block, then by row block.
 
-nrow = csc.m
-ncol = csc.n
-@assert nrow == ncol
-nblock = length(blocks)
+    nrow = csc.m
+    ncol = csc.n
+    @assert nrow == ncol
+    nblock = length(blocks)
 
-# This is expensive (about 4 s), but can also be moved to initialization.
-# Without the extra indirection (from e.g., col_block_map[J[k]][1]), this can get
-# heavily optimized and now only takes 1 s.
-blockidx_by_nz = colblock_by_nz[off_diagonal_nz] * nblock .+ rowblock_by_nz[off_diagonal_nz]
-off_diag_nzperm = sortperm(blockidx_by_nz)
-dt = time() - _t
-println("[$dt] Sort nonzero entries")
-sorted_I = I[off_diagonal_nz][off_diag_nzperm]
-sorted_J = J[off_diagonal_nz][off_diag_nzperm]
-dt = time() - _t
-println("[$dt] Sort I/J by (col block, row block)")
+    # This is expensive (about 4 s), but can also be moved to initialization.
+    # Without the extra indirection (from e.g., col_block_map[J[k]][1]), this can get
+    # heavily optimized and now only takes 1 s.
+    blockidx_by_nz = colblock_by_nz[off_diagonal_nz] * nblock .+ rowblock_by_nz[off_diagonal_nz]
+    off_diag_nzperm = sortperm(blockidx_by_nz)
+    dt = time() - _t
+    println("[$dt] Sort nonzero entries")
+    sorted_I = I[off_diagonal_nz][off_diag_nzperm]
+    sorted_J = J[off_diagonal_nz][off_diag_nzperm]
+    dt = time() - _t
+    println("[$dt] Sort I/J by (col block, row block)")
 
-# This is the only thing so far that has to be done in the factorization
-# or solve (when we have new matrix values).
-sorted_V = V[off_diagonal_nz][off_diag_nzperm]
-dt = time() - _t
-println("[$dt] Sort V")
+    # This is the only thing so far that has to be done in the factorization
+    # or solve (when we have new matrix values).
+    sorted_V = V[off_diagonal_nz][off_diag_nzperm]
+    dt = time() - _t
+    println("[$dt] Sort V")
 
-blockidx_by_sorted_nz = blockidx_by_nz[off_diag_nzperm]
-# Now I semi-efficiently have the sorted nonzeros. I just need to get the start and
-# end positions for each edge.
-#
-# These are positions in the sorted entries where either block changes
-blockstarts = filter(k -> k == 1 || blockidx_by_sorted_nz[k] != blockidx_by_sorted_nz[k-1], 1:nnz_offdiag)
-# If my math is correct, this has the same length as our edgelist
-@assert nedges == length(blockstarts)
-blockends = map(k -> blockstarts[k+1]-1, 1:(nedges-1))
-push!(blockends, nnz_offdiag)
-# Assumming we have sorted off-diagonal blocks correctly in both the edgelist and
-# the nonzero indices, these should be in the same order.
-# Now the question is: How do I want to store the off-diagonal matrices.
-dt = time() - _t
-println("[$dt] Partitioning nonzeros into off-diagonal blocks")
+    blockidx_by_sorted_nz = blockidx_by_nz[off_diag_nzperm]
+    # Now I semi-efficiently have the sorted nonzeros. I just need to get the start and
+    # end positions for each edge.
+    #
+    # These are positions in the sorted entries where either block changes
+    blockstarts = filter(k -> k == 1 || blockidx_by_sorted_nz[k] != blockidx_by_sorted_nz[k-1], 1:nnz_offdiag)
+    # If my math is correct, this has the same length as our edgelist
+    @assert nedges == length(blockstarts)
+    blockends = map(k -> blockstarts[k+1]-1, 1:(nedges-1))
+    push!(blockends, nnz_offdiag)
+    # Assumming we have sorted off-diagonal blocks correctly in both the edgelist and
+    # the nonzero indices, these should be in the same order.
+    # Now the question is: How do I want to store the off-diagonal matrices.
+    dt = time() - _t
+    println("[$dt] Partitioning nonzeros into off-diagonal blocks")
 
-#off_diagonal = map(
-#    # If edgedata exists primarily to construct these off-diagonal blocks,
-#    # I just need it to contain the start and end indices
-#    e -> (sorted_I[e[1]:e[2]], sorted_J[e[1]:e[2]], sorted_V[e[1];e[2]]),
-#    # edgedata is an array of some imaginary data structure that contains
-#    # the information I need
-#    edgedata,
-#)
-slices = map(e -> (blockstarts[e]:blockends[e]), 1:nedges)
-# edges are (colblock, rowblock), while blocks are (rows, cols)
+    #off_diagonal = map(
+    #    # If edgedata exists primarily to construct these off-diagonal blocks,
+    #    # I just need it to contain the start and end indices
+    #    e -> (sorted_I[e[1]:e[2]], sorted_J[e[1]:e[2]], sorted_V[e[1];e[2]]),
+    #    # edgedata is an array of some imaginary data structure that contains
+    #    # the information I need
+    #    edgedata,
+    #)
+    slices = map(e -> (blockstarts[e]:blockends[e]), 1:nedges)
+    # edges are (colblock, rowblock), while blocks are (rows, cols)
 
-# Map row/col coordinates to their positions-within-the-block
-local_I = map(k -> row_block_map[sorted_I[k]][2], 1:nnz_offdiag)
-local_J = map(k -> col_block_map[sorted_J[k]][2], 1:nnz_offdiag)
-# I could also make these views
-I_by_edge = map(s -> local_I[s], slices)
-J_by_edge = map(s -> local_J[s], slices)
-V_by_edge = map(s -> sorted_V[s], slices)
-#I_views = map(s -> view(local_I, s), slices)
-#J_views = map(s -> view(local_J, s), slices)
-#V_views = map(s -> view(sorted_V, s), slices)
-dt = time() - _t
-println("[$dt] Construct local indices, by edge")
+    # Map row/col coordinates to their positions-within-the-block
+    local_I = map(k -> row_block_map[sorted_I[k]][2], 1:nnz_offdiag)
+    local_J = map(k -> col_block_map[sorted_J[k]][2], 1:nnz_offdiag)
+    # I could also make these views
+    I_by_edge = map(s -> local_I[s], slices)
+    J_by_edge = map(s -> local_J[s], slices)
+    V_by_edge = map(s -> sorted_V[s], slices)
+    #I_views = map(s -> view(local_I, s), slices)
+    #J_views = map(s -> view(local_J, s), slices)
+    #V_views = map(s -> view(sorted_V, s), slices)
+    dt = time() - _t
+    println("[$dt] Construct local indices, by edge")
 
-# These implementations are bad
-#off_diagonal = map(e -> csc[blocks[e[2]][1], blocks[e[1]][2]], 1:nedges)
-#off_diagonal = map(e -> SparseArrays.sparse(I_views[e], J_views[e], V_views[e]), 1:nedges)
-# TODO: remove some of the indirection here
-blocksizes = map(b -> length(b[1]), blocks)
-rowblock_size_by_edge = map(e -> blocksizes[e[2]], dag)
-colblock_size_by_edge = map(e -> blocksizes[e[1]], dag)
+    # These implementations are bad
+    #off_diagonal = map(e -> csc[blocks[e[2]][1], blocks[e[1]][2]], 1:nedges)
+    #off_diagonal = map(e -> SparseArrays.sparse(I_views[e], J_views[e], V_views[e]), 1:nedges)
+    # TODO: remove some of the indirection here
+    blocksizes = map(b -> length(b[1]), blocks)
+    rowblock_size_by_edge = map(e -> blocksizes[e[2]], dag)
+    colblock_size_by_edge = map(e -> blocksizes[e[1]], dag)
 
-# How could this be broken down to avoid allocations in the backsolve?
-# I have I/J by edge already.
-# - csc comes in
-# - I extract NZ with findnz -- is my life easier if I just sorted CSC directly?
-#   findnz preserves row and nz order, so life is good
-# - nzval gets sorted
-# - I transfer these into a new array
-# - V_by_edge, for each edge, is just an unsafe_wrap around part of this array
-# - My sparse matrices are constructed using these unsafe_wraps, so they're updated
-#   in-place -- How do I do this? sparse seems to copy its inputs by default
-# - There must be some alternative to constructing an entire matrix just to set nzval
-#   I think I can just use this with .=
-#   This should be pretty fast
-off_diagonal = map(
-    e -> SparseArrays.sparse(
-        I_by_edge[e], J_by_edge[e], V_by_edge[e], rowblock_size_by_edge[e], colblock_size_by_edge[e]
-    ),
-    1:nedges,
-)
-dt = time() - _t
-println("[$dt] Construct sparse matrices to hold off-diagonal blocks")
+    # How could this be broken down to avoid allocations in the backsolve?
+    # I have I/J by edge already.
+    # - csc comes in
+    # - I extract NZ with findnz -- is my life easier if I just sorted CSC directly?
+    #   findnz preserves row and nz order, so life is good
+    # - nzval gets sorted
+    # - I transfer these into a new array
+    # - V_by_edge, for each edge, is just an unsafe_wrap around part of this array
+    # - My sparse matrices are constructed using these unsafe_wraps, so they're updated
+    #   in-place -- How do I do this? sparse seems to copy its inputs by default
+    # - There must be some alternative to constructing an entire matrix just to set nzval
+    #   I think I can just use this with .=
+    #   This should be pretty fast
+    off_diagonal = map(
+        e -> SparseArrays.sparse(
+            I_by_edge[e], J_by_edge[e], V_by_edge[e], rowblock_size_by_edge[e], colblock_size_by_edge[e]
+        ),
+        1:nedges,
+    )
+    dt = time() - _t
+    println("[$dt] Construct sparse matrices to hold off-diagonal blocks")
 
-for e in 1:nedges
-    # There must be a way to do this with less overhead.
-    off_diagonal[e].nzval .= V_by_edge[e]
-end
-dt = time() - _t
-println("[$dt] Update nzval")
-
-# What does my backsolve loop look like?
-# Can I just loop over edges, or do I need the adjacency list?
-iprev = 0
-for (e, (i, j)) in enumerate(dag)
-    # If this is the first time we've encountered i as a source node,
-    # solve and store the solution in RHS
-    if i != iprev
-        solve!(factors[i], rhs_blocks[i])
+    for e in 1:nedges
+        # There must be a way to do this with less overhead.
+        off_diagonal[e].nzval .= V_by_edge[e]
     end
-    # Used the cached solution X_i (in RHS_i) to update the RHS
-    # of the destination node j
-    rhs_blocks[j] .-= off_diagonal[e] * rhs_blocks[i]
+    dt = time() - _t
+    println("[$dt] Update nzval")
+
+    # What does my backsolve loop look like?
+    # Can I just loop over edges, or do I need the adjacency list?
+    iprev = 0
+    for (e, (i, j)) in enumerate(dag)
+        # If this is the first time we've encountered i as a source node,
+        # solve and store the solution in RHS
+        if i != iprev
+            solve!(factors[i], rhs_blocks[i])
+        end
+        # Used the cached solution X_i (in RHS_i) to update the RHS
+        # of the destination node j
+        rhs_blocks[j] .-= off_diagonal[e] * rhs_blocks[i]
+    end
+    dt = time() - _t
+    println("[$dt] Backsolve")
+else
+    _t = time()
+    solve!(btsolver, RHS)
+    t_solve = time() - _t
+    println("Solve:      $t_solve")
 end
-dt = time() - _t
-println("[$dt] Backsolve")
 
 ADJACENCY_LIST = false
 if ADJACENCY_LIST
