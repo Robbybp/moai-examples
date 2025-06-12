@@ -12,6 +12,20 @@ include("btsolver.jl")
 include("models.jl")
 include("nlpmodels.jl")
 
+function _test_matrix(csc::SparseArrays.SparseMatrixCSC; atol=1e-8)
+    csc = SparseArrays.sparse(csc)
+    dim = csc.m
+    nrhs = 10
+    rowscaling = LinearAlgebra.diagm(convert(Vector{Float64}, 1:dim))
+    rhs = rowscaling * ones(dim, nrhs)
+    btsolver = BlockTriangularSolver(csc)
+    factorize!(btsolver)
+    sol = copy(rhs)
+    solve!(btsolver, sol)
+    baseline = csc \ rhs
+    @test all(isapprox.(sol, baseline; atol))
+end
+
 function test_3x3_lt()
     matrix = [
         1.0 0.0 0.0;
@@ -19,17 +33,7 @@ function test_3x3_lt()
         0.0 2.0 1.0;
     ]
     matrix = SparseArrays.sparse(matrix)
-    dim = matrix.m
-    nrhs = 10
-    rowscaling = LinearAlgebra.diagm(convert(Vector{Float64}, 1:dim))
-    rhs = rowscaling * ones(dim, nrhs)
-    btsolver = BlockTriangularSolver(matrix)
-    factorize!(btsolver)
-    sol = copy(rhs)
-    solve!(btsolver, sol)
-    display(rhs)
-    baseline = matrix \ rhs
-    @test all(isapprox.(sol, baseline, atol=1e-8))
+    _test_matrix(matrix)
     return
 end
 
@@ -46,17 +50,7 @@ function test_3x3_lt_unsym_perm()
         2.0 1.0 0.0;
     ]
     matrix = SparseArrays.sparse(matrix)
-    dim = matrix.m
-    nrhs = 10
-    rowscaling = LinearAlgebra.diagm(convert(Vector{Float64}, 1:dim))
-    rhs = rowscaling * ones(dim, nrhs)
-    btsolver = BlockTriangularSolver(matrix)
-    factorize!(btsolver)
-    sol = copy(rhs)
-    solve!(btsolver, sol)
-    display(rhs)
-    baseline = matrix \ rhs
-    @test all(isapprox.(sol, baseline, atol=1e-8))
+    _test_matrix(matrix)
     return
 end
 
@@ -68,20 +62,7 @@ function test_4x4_blt()
         2.0 0.0 0.0 2.0;
     ]
     matrix = SparseArrays.sparse(matrix)
-    dim = matrix.m
-    nrhs = 10
-    rowscaling = LinearAlgebra.diagm(convert(Vector{Float64}, 1:dim))
-    rhs = rowscaling * ones(dim, nrhs)
-    btsolver = BlockTriangularSolver(matrix)
-    factorize!(btsolver)
-    sol = copy(rhs)
-    solve!(btsolver, sol)
-    baseline = matrix \ rhs
-    @test all(isapprox.(sol, baseline, atol=1e-8))
-    #correct_sol = [11/4, 1.0, 11/8, -9/4]
-    #for i in 1:nrhs
-    #    @test all(isapprox.(sol[:,i], correct_sol, atol=1e-8))
-    #end
+    _test_matrix(matrix)
     return
 end
 
@@ -96,45 +77,7 @@ function test_nn_jacobian()
     vars, cons = get_var_con_order(model)
     x = [something(JuMP.start_value(var), 1.0) for var in vars]
     matrix = NLPModels.jac(nlp, x)
-    display(matrix)
-    igraph = MathProgIncidence.IncidenceGraphInterface(matrix)
-    blocks = MathProgIncidence.block_triangularize(igraph)
-    cblocks = [b[1] for b in blocks]
-    vblocks = [b[2] for b in blocks] 
-    block_indices = [[i for _ in b[1]] for (i, b) in enumerate(blocks)]
-    block_indices = vcat(block_indices...)
-    corder = vcat(cblocks...)
-    vorder = vcat(vblocks...)
-    display(matrix[corder, vorder])
-
-    dim = matrix.m
-    nrhs = 10
-    rowscaling = LinearAlgebra.diagm(convert(Vector{Float64}, 1:dim))
-    rhs = rowscaling * ones(dim, nrhs)
-    btsolver = BlockTriangularSolver(matrix)
-    factorize!(btsolver)
-    sol = copy(rhs)
-    solve!(btsolver, sol)
-
-    baseline = matrix \ rhs
-
-    #diff = abs.(sol - baseline)
-    #for i in 1:dim
-    #    # Find positions in baseline where this solution value shows up
-    #    correct_positions = findall(j -> abs(sol[i] - baseline[j]) <= 1e-8, 1:dim)
-    #    @assert length(correct_positions) == 1
-    #    correct_position = only(correct_positions)
-    #    println(
-    #        @sprintf("%3d", i)
-    #        * @sprintf(" %+1.2E", sol[i])
-    #        * @sprintf(" %+1.2E", baseline[i])
-    #        * @sprintf(" %3.2f", diff[i])
-    #        * @sprintf("\t\tblock %3d", block_indices[i])
-    #        * @sprintf(", should be %3d", correct_position)
-    #    )
-    #end
-
-    @test all(isapprox.(sol, baseline, atol=1e-8))
+    _test_matrix(matrix)
     return
 end
 
