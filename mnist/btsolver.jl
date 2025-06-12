@@ -373,8 +373,13 @@ function solve!(solver::BlockTriangularSolver, rhs::Matrix)
     # *and* apply the column permutation to our solution in order to
     # recover the solution to the original problem.
     row_perm = [i for (rb, cb) in blocks for i in rb]
+    # Maybe we need to apply the inverse column permutation here?
     col_perm = [j for (rb, cb) in blocks for j in cb]
-    rhs .= rhs[row_perm, :][col_perm, :]
+    inv_col_perm = zeros(Int64, csc.n)
+    for (i, j) in enumerate(col_perm)
+        inv_col_perm[j] = i
+    end
+    rhs .= rhs[row_perm, :][inv_col_perm, :]
 
     #iprev = 0
     #for (e, (i, j)) in enumerate(dag)
