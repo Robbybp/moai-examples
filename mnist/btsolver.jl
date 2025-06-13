@@ -235,7 +235,7 @@ function solve!(solver::BlockTriangularSolver, rhs::Vector)
     return solve!(solver, rhs)
 end
 
-function solve!(lu::Matrix, rhs)
+function solve!(lu::Matrix{Float64}, rhs)
     # Note that we hit errors here if there's a divide-by-zero due to a bad pivot.
     # That may not be ideal...
     if lu.size[1] == 1
@@ -269,14 +269,19 @@ end
 
 function solve!(solver::BlockTriangularSolver, rhs::Matrix)
     _t = time()
-    # - Partition rhs into blocks
-    # - Backsolve blocks using stored LU factors (can probably store results in rhs)
-    #   ^ I can't actually naively backsolve because RHSs are sequentially dependent
     csc = solver.csc
     blocks = solver.blocks
     factors = solver.factors
     nblock = length(blocks)
     nnz = SparseArrays.nnz(csc)
+
+    row_perm = [i for (rb, cb) in blocks for i in rb]
+    col_perm = [j for (rb, cb) in blocks for j in cb]
+    inv_col_perm = zeros(Int64, csc.n)
+    for (i, j) in enumerate(col_perm)
+        inv_col_perm[j] = i
+    end
+
     # We partition the RHS by row blocks of the original matrix
     rhs_blocks = map(b -> view(rhs, b[1], :), blocks)
 
@@ -303,28 +308,41 @@ function solve!(solver::BlockTriangularSolver, rhs::Matrix)
     dt = time() - _t
     println("[$dt] Update nzval")
 
+    # What happens if I use dense off-diagonal blocks?
+    off_diagonal_matrices = map(m -> Matrix(m), off_diagonal_matrices)
+    dt = time() - _t
+    println("[$dt] Construct dense matrices")
+
     # Backsolve using an adjacency list
+    #t_solve = 0.0
+    #t_loop = 0.0
+    #t_multiply = 0.0
+    #_t = time()
     for b in 1:nblock
+        #local _t = time()
         solve!(factors[b], rhs_blocks[b])
+        #t_solve += time() - _t
         # Look up positions of this node's out-edges in edgelist
         for e in edgestart_by_block[b]:edgeend_by_block[b]
             _, j = dag[e]
+            #local _t = time()
             rhs_blocks[j] .-= off_diagonal_matrices[e] * rhs_blocks[b]
+            #t_multiply += time() - _t
         end
     end
+    #t_loop = time() - _t
+    #println("---------------")
+    #println("Backsolve loop:")
+    #println("Solve:   $t_solve")
+    #println("Mutiply: $t_multiply")
+    #println("Other:   $(t_loop-t_solve-t_multiply)")
+    #println("---------------")
     dt = time() - _t
     println("[$dt] Backsolve")
     # By updating B in-place, we have implicitly applied the inverse
     # row permutation to our solution. We must undo this row permutation
     # *and* apply the column permutation to our solution in order to
     # recover the solution to the original problem.
-    row_perm = [i for (rb, cb) in blocks for i in rb]
-    # Maybe we need to apply the inverse column permutation here?
-    col_perm = [j for (rb, cb) in blocks for j in cb]
-    inv_col_perm = zeros(Int64, csc.n)
-    for (i, j) in enumerate(col_perm)
-        inv_col_perm[j] = i
-    end
     rhs .= rhs[row_perm, :][inv_col_perm, :]
     dt = time() - _t
     println("[$dt] Reorder solution")
