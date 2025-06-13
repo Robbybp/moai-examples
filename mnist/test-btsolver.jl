@@ -103,10 +103,47 @@ function test_nn_kkt()
     _test_matrix(pivot_matrix)
 end
 
+function test_nn_kkt_symmetric_inverse()
+    model, info = make_small_nn_model()
+    nlp, kkt_system, kkt_matrix = get_kkt(model)
+    pivot_indices = get_kkt_indices(model, info.variables, info.constraints)
+    kkt_matrix = fill_upper_triangle(kkt_matrix)
+    pivot_dim = length(pivot_indices)
+    pivot_matrix = kkt_matrix[pivot_indices, pivot_indices]
+
+    # Filter out constraint regularization nonzeros
+    # By convention, constraints are the second half of the pivot indices
+    to_ignore = Set(Int(pivot_dim / 2 + 1):pivot_dim)
+    I, J, V = SparseArrays.findnz(pivot_matrix)
+    to_retain = filter(k -> !(I[k] in to_ignore && J[k] in to_ignore), 1:length(I))
+    I = I[to_retain]
+    J = J[to_retain]
+    V = V[to_retain]
+    pivot_matrix = SparseArrays.sparse(I, J, V, pivot_dim, pivot_dim)
+
+    # By using the identity matrix as the RHS, we recover the inverse.
+    rhs = LinearAlgebra.diagm(ones(pivot_dim))
+    btsolver = BlockTriangularSolver(pivot_matrix)
+    factorize!(btsolver)
+    sol = copy(rhs)
+    solve!(btsolver, sol)
+    baseline = pivot_matrix \ rhs
+    @test all(isapprox.(sol, baseline; atol = 1e-8))
+
+    symmetric_diffs = []
+    for i in 1:pivot_dim
+        for j in 1:(i-1)
+            push!(symmetric_diffs, abs(sol[i,j] - sol[j, i]))
+        end
+    end
+    @test all(symmetric_diffs .<= 1e-8)
+end
+
 @testset begin
     test_3x3_lt()
     test_3x3_lt_unsym_perm()
     test_4x4_blt()
     test_nn_jacobian()
     test_nn_kkt()
+    test_nn_kkt_symmetric_inverse()
 end
