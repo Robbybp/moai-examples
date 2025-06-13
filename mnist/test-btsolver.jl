@@ -8,23 +8,75 @@ import SparseArrays
 using Test
 using Printf
 
+include("adversarial-image.jl")
 include("btsolver.jl")
 include("models.jl")
 include("nlpmodels.jl")
 include("linalg.jl")
 
-function _test_matrix(csc::SparseArrays.SparseMatrixCSC; atol=1e-8)
-    csc = SparseArrays.sparse(csc)
+function _test_matrix(
+    csc::SparseArrays.SparseMatrixCSC;
+    atol=1e-8,
+    nrhs = 10,
+    baseline_solver = "umfpack",
+    skiptest = false,
+)
     dim = csc.m
-    nrhs = 10
     rowscaling = LinearAlgebra.diagm(convert(Vector{Float64}, 1:dim))
     rhs = rowscaling * ones(dim, nrhs)
-    btsolver = BlockTriangularSolver(csc)
-    factorize!(btsolver)
-    sol = copy(rhs)
-    solve!(btsolver, sol)
-    baseline = csc \ rhs
-    @test all(isapprox.(sol, baseline; atol))
+
+    if true
+        _t = time()
+        btsolver = BlockTriangularSolver(csc)
+        t_init = time() - _t
+        _t = time()
+        factorize!(btsolver)
+        t_fact = time() - _t
+        sol = copy(rhs)
+        _t = time()
+        solve!(btsolver, sol)
+        t_solve = time() - _t
+    else
+        _t = time()
+        solver = MadNLPHSL.Ma57Solver(SparseArrays.tril(csc))
+        t_init = time() - _t
+        _t = time()
+        MadNLP.factorize!(solver)
+        t_fact = time() - _t
+        sol = copy(rhs)
+        _t = time()
+        MadNLP.solve!(solver, sol)
+        t_solve = time() - _t
+    end
+
+    if baseline_solver == "umfpack"
+        baseline = csc \ rhs
+    elseif baseline_solver == "ma57"
+        solver = MadNLPHSL.Ma57Solver(SparseArrays.tril(csc))
+        MadNLP.factorize!(solver)
+        baseline = copy(rhs)
+        MadNLP.solve!(solver, baseline)
+    else
+        error("baseline_solver argument must be \"umfpack\" or \"ma57\"")
+    end
+    if !skiptest
+        @test all(isapprox.(sol, baseline; atol))
+    end
+    if !(all(isapprox.(sol, baseline; atol)))
+        diff = abs.(sol .- baseline)
+        ndiff = count(diff[:, 1] .> atol)
+        maxdiff = maximum(diff)
+        println("Solution does not match baseline")
+        println("Max error: $maxdiff")
+        println("N. errors: $ndiff / $dim")
+    end
+    return (;
+        time = (;
+            initialize = t_init,
+            factorize = t_fact,
+            solve = t_solve,
+        ),
+    )
 end
 
 function test_3x3_lt()
@@ -139,6 +191,55 @@ function test_nn_kkt_symmetric_inverse()
     @test all(symmetric_diffs .<= 1e-8)
 end
 
+function test_mnist_nn_kkt()
+    IMAGE_INDEX = 7
+    ADVERSARIAL_LABEL = 1
+    THRESHOLD = 0.6
+    #nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
+    nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
+    #nnfile = joinpath("nn-models", "mnist-relu2048nodes4layers.pt")
+    if !isfile(nnfile)
+        return
+    end
+    model, outputs, formulation = get_adversarial_model(
+        nnfile, IMAGE_INDEX, ADVERSARIAL_LABEL, THRESHOLD;
+        reduced_space = false
+    )
+    nlp, kkt_system, kkt_matrix = get_kkt(model, Solver=MadNLPHSL.Ma57Solver)
+
+    pivot_vars, pivot_cons = get_vars_cons(formulation)
+    pivot_indices = get_kkt_indices(model, pivot_vars, pivot_cons)
+    pivot_index_set = Set(pivot_indices)
+    @assert kkt_matrix.m == kkt_matrix.n
+    reduced_indices = filter(i -> !(i in pivot_index_set), 1:kkt_matrix.m)
+    pivot_dim = length(pivot_indices)
+    @assert pivot_dim % 2 == 0
+
+    P = pivot_indices
+    R = reduced_indices
+    C_orig = kkt_matrix[P, P]
+
+    # Filter out constraint regularization nonzeros
+    # By convention, constraints are the second half of the pivot indices
+    to_ignore = Set(Int(pivot_dim / 2 + 1):pivot_dim)
+    I, J, V = SparseArrays.findnz(C_orig)
+    to_retain = filter(k -> !(I[k] in to_ignore && J[k] in to_ignore), 1:length(I))
+    I = I[to_retain]
+    J = J[to_retain]
+    V = V[to_retain]
+    C = SparseArrays.sparse(I, J, V, C_orig.m, C_orig.n)
+    C_full = fill_upper_triangle(C)
+    nrhs = 100
+    # We skip the test as there is a significant amount of error for these relatively
+    # large systems.
+    res = _test_matrix(C_full; nrhs, atol = 1e-5, skiptest = true)
+    println("Timing breakdown")
+    println("----------------")
+    println("Initialization: $(res.time.initialize)")
+    println("Factorization:  $(res.time.factorize)")
+    println("Solve (x$nrhs):  $(res.time.solve)")
+end
+
 @testset begin
     test_3x3_lt()
     test_3x3_lt_unsym_perm()
@@ -146,4 +247,5 @@ end
     test_nn_jacobian()
     test_nn_kkt()
     test_nn_kkt_symmetric_inverse()
+    test_mnist_nn_kkt()
 end
