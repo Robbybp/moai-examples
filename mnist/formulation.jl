@@ -59,3 +59,27 @@ function get_vars_cons(formulation::MOAI.AbstractFormulation)
     _collect_vars_cons!(formulation, formulation.predictor, variables, constraints)
     return (; variables, constraints)
 end
+
+function _collect_layers!(
+    formulation::MOAI.AbstractFormulation,
+    layers::Vector{<:MOAI.AbstractFormulation},
+)
+    push!(layers, formulation)
+    return nothing
+end
+
+function _collect_layers!(
+    formulation::MOAI.PipelineFormulation,
+    layers::Vector{<:MOAI.AbstractFormulation},
+)
+    for layer in formulation.layers
+        _collect_layers!(layer, layers)
+    end
+    return nothing
+end
+
+function get_layers(formulation::MOAI.AbstractFormulation)
+    layers = MOAI.AbstractFormulation[]
+    _collect_layers!(formulation, layers)
+    return layers
+end

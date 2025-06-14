@@ -165,8 +165,8 @@ IMAGE_INDEX = 7
 ADVERSARIAL_LABEL = 1
 THRESHOLD = 0.6
 
-#nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
-nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
+nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
+#nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
 #nnfile = joinpath("nn-models", "mnist-relu2048nodes4layers.pt")
 model, outputs, formulation = get_adversarial_model(
     nnfile, IMAGE_INDEX, ADVERSARIAL_LABEL, THRESHOLD;
@@ -291,6 +291,33 @@ if CHECK_BTF
     #x = lu \ rhs
     #display(lu)
 end
+
+# Can I manually permute the matrix to my own, custom, block triangular form?
+layers = get_layers(formulation)
+var_con_by_layer = [get_vars_cons(l) for l in layers]
+@assert all(length(vars) == length(cons) for (vars, cons) in var_con_by_layer)
+indices_by_layer = [
+    get_kkt_indices(model, vars, cons)
+    for (vars, cons) in var_con_by_layer
+]
+
+row_order = []
+col_order = []
+for indices in indices_by_layer
+    k = Int(round(length(indices) / 2))
+    varindices = indices[1:k]
+    conindices = indices[k+1:end]
+    append!(row_order, conindices)
+    append!(col_order, varindices)
+end
+for indices in reverse(indices_by_layer)
+    k = Int(round(length(indices) / 2))
+    varindices = indices[1:k]
+    conindices = indices[k+1:end]
+    append!(row_order, varindices)
+    append!(col_order, conindices)
+end
+display(fill_upper_triangle(kkt_matrix)[row_order, col_order])
 
 _t = time()
 btsolver = BlockTriangularSolver(C_full)
