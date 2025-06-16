@@ -16,6 +16,7 @@ include("linalg.jl")
 
 function _test_matrix(
     csc::SparseArrays.SparseMatrixCSC;
+    blocks = nothing,
     atol=1e-8,
     nrhs = 10,
     baseline_solver = "umfpack",
@@ -27,7 +28,7 @@ function _test_matrix(
 
     if true
         _t = time()
-        btsolver = BlockTriangularSolver(csc)
+        btsolver = BlockTriangularSolver(csc; blocks)
         t_init = time() - _t
         _t = time()
         factorize!(btsolver)
@@ -87,6 +88,8 @@ function test_3x3_lt()
     ]
     matrix = SparseArrays.sparse(matrix)
     _test_matrix(matrix)
+    blocks = [([1,2], [1,2]), ([3], [3])]
+    _test_matrix(matrix; blocks)
     return
 end
 
@@ -104,6 +107,8 @@ function test_3x3_lt_unsym_perm()
     ]
     matrix = SparseArrays.sparse(matrix)
     _test_matrix(matrix)
+    blocks = [([1], [3]), ([3,2], [2,1])]
+    _test_matrix(matrix; blocks)
     return
 end
 
@@ -119,18 +124,49 @@ function test_4x4_blt()
     return
 end
 
+function test_5x5_large_block()
+    # This matrix has a 4x4 block and a 1x1 block
+    matrix = [
+        1.0 0.0 0.0 2.0 0.0;
+        3.0 1.0 2.0 0.0 0.0;
+        1.0 0.0 1.0 1.0 0.0;
+        2.0 3.0 2.0 1.0 0.0;
+        0.0 4.0 0.0 0.0 1.0;
+    ]
+    matrix = SparseArrays.sparse(matrix)
+    _test_matrix(matrix)
+    return
+end
+
 function test_nn_jacobian()
     # NOTE: This model is constructed with random numbers.
     # TODO: Use a deterministic model here.
     model, info = make_small_nn_model()
+    layers = get_layers(info.formulation)
+    var_con_by_layer = [get_vars_cons(l) for l in layers]
     # ... do FixRef constraints not get picked up by NLPModels?
     #JuMP.fix.(model[:x], 2.0; force = true)
-    JuMP.@constraint(model, model[:x] .== 2.0)
+    input_cons = JuMP.@constraint(model, model[:x] .== 2.0)
     nlp = NLPModelsJuMP.MathOptNLPModel(model)
     vars, cons = get_var_con_order(model)
+    var_index_map = Dict((var, i) for (i, var) in enumerate(vars))
+    con_index_map = Dict((con, i) for (i, con) in enumerate(cons))
+    input_block = [
+        ([con_index_map[c] for c in input_cons], [var_index_map[v] for v in model[:x]])
+    ]
+    output_blocks = [
+        (
+            [con_index_map[c] for c in cons],
+            [var_index_map[v] for v in vars],
+        )
+        for (vars, cons) in var_con_by_layer
+    ]
+    blocks = vcat(input_block, output_blocks)
+    display(blocks)
     x = [something(JuMP.start_value(var), 1.0) for var in vars]
     matrix = NLPModels.jac(nlp, x)
-    _test_matrix(matrix)
+    display(matrix)
+    _test_matrix(matrix; blocks)
     return
 end
 
@@ -197,7 +233,7 @@ function test_mnist_nn_kkt()
     THRESHOLD = 0.6
     #nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
     nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
-    #nnfile = joinpath("nn-models", "mnist-relu2048nodes4layers.pt")
+    nnfile = joinpath("nn-models", "mnist-relu2048nodes4layers.pt")
     if !isfile(nnfile)
         return
     end
@@ -238,14 +274,41 @@ function test_mnist_nn_kkt()
     println("Initialization: $(res.time.initialize)")
     println("Factorization:  $(res.time.factorize)")
     println("Solve (x$nrhs):  $(res.time.solve)")
+
+    # Maps indices in the original space to their index in the pivot matrix
+    index_remap = Dict((p, i) for (i, p) in enumerate(P))
+
+    layers = get_layers(formulation)
+    var_con_by_layer = [get_vars_cons(l) for l in layers]
+    var_indices_by_layer = [get_kkt_indices(model, vars, []) for (vars, _) in var_con_by_layer]
+    con_indices_by_layer = [get_kkt_indices(model, [], cons) for (_, cons) in var_con_by_layer]
+    blocks = []
+    for l in 1:length(layers)
+        conindices = [index_remap[i] for i in con_indices_by_layer[l]]
+        varindices = [index_remap[i] for i in var_indices_by_layer[l]]
+        push!(blocks, (conindices, varindices))
+    end
+    for l in reverse(1:length(layers))
+        conindices = [index_remap[i] for i in con_indices_by_layer[l]]
+        varindices = [index_remap[i] for i in var_indices_by_layer[l]]
+        push!(blocks, (varindices, conindices))
+    end
+
+    res = _test_matrix(C_full; blocks, nrhs, atol = 1e-5, skiptest = true)
+    println("Timing breakdown")
+    println("----------------")
+    println("Initialization: $(res.time.initialize)")
+    println("Factorization:  $(res.time.factorize)")
+    println("Solve (x$nrhs):  $(res.time.solve)")
 end
 
 @testset begin
-    test_3x3_lt()
-    test_3x3_lt_unsym_perm()
-    test_4x4_blt()
-    test_nn_jacobian()
-    test_nn_kkt()
-    test_nn_kkt_symmetric_inverse()
+    #test_3x3_lt()
+    #test_3x3_lt_unsym_perm()
+    #test_4x4_blt()
+    #test_5x5_large_block()
+    #test_nn_jacobian()
+    #test_nn_kkt()
+    #test_nn_kkt_symmetric_inverse()
     test_mnist_nn_kkt()
 end

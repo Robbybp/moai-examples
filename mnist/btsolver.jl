@@ -1,11 +1,18 @@
 import SparseArrays
+import LinearAlgebra
 import MathProgIncidence
 import MadNLP
 
 mutable struct BlockTriangularSolver
     csc::SparseArrays.SparseMatrixCSC
     blocks::Vector{Tuple{Vector{Int},Vector{Int}}}
-    factors::Vector{Matrix}
+
+    # Data structures for factorization
+    diagonal_block_matrices::Vector{Matrix}
+    #factors::Vector{<:LinearAlgebra.Factorization}
+    # Using Vector{Any} here because LinearAlgebra.factorize doesn't
+    # appear to be type-stable.
+    factors::Vector{Any}
 
     # The following is the minimal data I need for the backsolve
     off_diagonal_nz::Vector{Int}
@@ -25,20 +32,39 @@ end
 
 function BlockTriangularSolver(
     csc::SparseArrays.SparseMatrixCSC;
-    max_blocksize::Int = 2,
+    blocks::Union{Vector,Nothing} = nothing,
+    #max_blocksize::Int = 2,
 )
+    @assert csc.m == csc.n
+    dim = csc.m
     igraph = MathProgIncidence.IncidenceGraphInterface(csc)
-    blocks = MathProgIncidence.block_triangularize(igraph)
-    blocksizes = map(b -> length(first(b)), blocks)
-    if any(blocksizes .> max_blocksize)
-        error(
-            "Block triangular form has a block greater than the max blocksize of"
-            * " $max_blocksize"
-        )
+
+    # TODO: If `blocks` is provided, raise an error if the blocks don't partition
+    # `csc`'s rows and columns.
+    if blocks === nothing
+        blocks = MathProgIncidence.block_triangularize(igraph)
+    else
+        # If blocks were provided, we need to make sure they partition the row/column indices
+        all_row_indices = mapreduce(b -> b[1], vcat, blocks)
+        all_col_indices = mapreduce(b -> b[2], vcat, blocks)
+        expected_indices = Set(1:dim)
+        @assert length(all_row_indices) == dim
+        @assert length(all_col_indices) == dim
+        @assert issubset(all_row_indices, expected_indices)
+        @assert issubset(all_col_indices, expected_indices)
     end
+    blocksizes = map(b -> length(first(b)), blocks)
+    #if any(blocksizes .> max_blocksize)
+    #    error(
+    #        "Block triangular form has a block greater than the max blocksize of"
+    #        * " $max_blocksize"
+    #    )
+    #end
     # NOTE: It may be inefficient to store 1x1 blocks in a matrix, but this hasn't
     # shown up in a profile yet.
     diagonal_block_matrices = map(b -> zeros(b, b), blocksizes)
+    #factors = LinearAlgebra.Factorization[]
+    factors = []
 
     nblock = length(blocks)
     nnz = SparseArrays.nnz(csc)
@@ -134,6 +160,7 @@ function BlockTriangularSolver(
         csc,
         blocks,
         diagonal_block_matrices,
+        factors,
         off_diagonal_nz,
         off_diagonal_nzperm,
         edge_slices,
@@ -191,7 +218,7 @@ function factorize!(solver::BlockTriangularSolver)
     t0 = time()
     csc = solver.csc
     blocks = solver.blocks
-    factors = solver.factors
+    block_matrices = solver.diagonal_block_matrices
 
     # For each row/col, we store (a) the block it belongs to and (b) its position
     # within that block. While position-within-block is arbitrary, we will need to
@@ -217,14 +244,20 @@ function factorize!(solver::BlockTriangularSolver)
     block_entries = filter(k -> row_block_map[I[k]][1] == col_block_map[J[k]][1], 1:nnz)
     # For entries in the same block, add the nonzero value to the matrix in the correct
     # position.
+    #
+    # FIXME: There is a bug here regarding repeated solves. I'm assuming that these
+    # matrices are initialized to zeros, which is clearly not the case as written.
     for k in block_entries
-        matrix = factors[row_block_map[I[k]][1]]
+        matrix = block_matrices[row_block_map[I[k]][1]]
         matrix[row_block_map[I[k]][2], col_block_map[J[k]][2]] += V[k]
     end
 
     dt = time() - t0
     println("[$dt] Loop over nonzeros")
-    factorize!.(factors)
+    # Note that this allocates new Factorization objects.
+    factors = LinearAlgebra.factorize.(block_matrices)
+    solver.factors = factors
+    #factorize!.(block_matrices)
     dt = time() - t0
     println("[$dt] factorize")
     return
@@ -271,6 +304,7 @@ function solve!(solver::BlockTriangularSolver, rhs::Matrix)
     _t = time()
     csc = solver.csc
     blocks = solver.blocks
+    #diagonal_block_matrices = solver.diagonal_block_matrices
     factors = solver.factors
     nblock = length(blocks)
     nnz = SparseArrays.nnz(csc)
@@ -320,7 +354,9 @@ function solve!(solver::BlockTriangularSolver, rhs::Matrix)
     #_t = time()
     for b in 1:nblock
         #local _t = time()
-        solve!(factors[b], rhs_blocks[b])
+        #solve!(diagonal_block_matrices[b], rhs_blocks[b])
+        # TODO: `ldiv!`?
+        rhs_blocks[b] .= factors[b] \ rhs_blocks[b]
         #t_solve += time() - _t
         # Look up positions of this node's out-edges in edgelist
         for e in edgestart_by_block[b]:edgeend_by_block[b]
