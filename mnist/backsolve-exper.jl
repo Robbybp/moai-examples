@@ -301,12 +301,17 @@ indices_by_layer = [
     for (vars, cons) in var_con_by_layer
 ]
 
+# Remove nonzeros corresponding to NN constraint regularization
+# ... I've already done this above
+
 row_order = []
 col_order = []
+blocks = []
 for indices in indices_by_layer
     k = Int(round(length(indices) / 2))
     varindices = indices[1:k]
     conindices = indices[k+1:end]
+    push!(blocks, (conindices, varindices))
     append!(row_order, conindices)
     append!(col_order, varindices)
 end
@@ -314,22 +319,50 @@ for indices in reverse(indices_by_layer)
     k = Int(round(length(indices) / 2))
     varindices = indices[1:k]
     conindices = indices[k+1:end]
+    push!(blocks, (varindices, conindices))
     append!(row_order, varindices)
     append!(col_order, conindices)
 end
+println("Reordered KKT submatrix")
 display(fill_upper_triangle(kkt_matrix)[row_order, col_order])
+println("Reordered submatrix with regularization nonzeros removed")
+# NOTE: I'm doing a lot of work here that should probably be handled directly
+# by BTSolver
+con_indices = get_kkt_indices(model, [], pivot_cons)
+noreg_fullsymmetric_kkt_matrix = fill_upper_triangle(
+    remove_diagonal_nonzeros(kkt_matrix, con_indices)
+)
+display(noreg_fullsymmetric_kkt_matrix)
+display(noreg_fullsymmetric_kkt_matrix[row_order, col_order])
+# I also want to check each individual diagonal submatrix
+for (i, block) in enumerate(blocks)
+    bmat = noreg_fullsymmetric_kkt_matrix[block...]
+    local igraph = MathProgIncidence.IncidenceGraphInterface(bmat)
+    subblocks = MathProgIncidence.block_triangularize(igraph)
+    sub_row_order = mapreduce(b -> b[1], vcat, subblocks)
+    sub_col_order = mapreduce(b -> b[2], vcat, subblocks)
+    maxblocksize = maximum(b -> length(b[1]), subblocks)
+    println("Diagonal block $i")
+    println("Max blocksize = $maxblocksize")
+    display(bmat)
+    println("Ordered to BTF:")
+    display(bmat[sub_row_order, sub_col_order])
+    println()
+end
 
-_t = time()
-btsolver = BlockTriangularSolver(C_full)
-t_init = time() - _t
-println("Initialize: $t_init")
+if false
+    _t = time()
+    btsolver = BlockTriangularSolver(C_full)
+    t_init = time() - _t
+    println("Initialize: $t_init")
 
-_t = time()
-factorize!(btsolver)
-t_factorize = time() - _t
-println("Factorize:  $t_factorize")
+    _t = time()
+    factorize!(btsolver)
+    t_factorize = time() - _t
+    println("Factorize:  $t_factorize")
 
-_t = time()
-solve!(btsolver, RHS)
-t_solve = time() - _t
-println("Solve:      $t_solve")
+    _t = time()
+    solve!(btsolver, RHS)
+    t_solve = time() - _t
+    println("Solve:      $t_solve")
+end

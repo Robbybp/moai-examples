@@ -496,3 +496,19 @@ function fill_upper_triangle(csc::SparseArrays.SparseMatrixCSC)
     new = SparseArrays.sparse(I, J, V)
     return new
 end
+
+function remove_diagonal_nonzeros(
+    csc::SparseArrays.SparseMatrixCSC,
+    indices::Vector{Int},
+)
+    indexset = Set(indices)
+    nnz = SparseArrays.nnz(csc)
+    I, J, V = SparseArrays.findnz(csc)
+    # Keep the entry if its row isn't in the index set or it's not on the diagonal
+    to_retain = filter(k -> !(I[k] in indexset) || I[k] != J[k], 1:nnz)
+    I = I[to_retain]
+    J = J[to_retain]
+    V = V[to_retain]
+    newcsc = SparseArrays.sparse(I, J, V)
+    return newcsc
+end
