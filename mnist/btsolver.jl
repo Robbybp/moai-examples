@@ -344,35 +344,46 @@ function solve!(solver::BlockTriangularSolver, rhs::Matrix)
 
     # What happens if I use dense off-diagonal blocks?
     off_diagonal_matrices = map(m -> Matrix(m), off_diagonal_matrices)
+    #off_diagonal_matrices = map(
+    #    # Some quick heuristic to switch between sparse and dense?
+    #    matrix -> SparseArrays.nnz(matrix) >= 0.01*matrix.m*matrix.n ? Matrix(matrix) : matrix,
+    #    off_diagonal_matrices,
+    #)
     dt = time() - _t
     println("[$dt] Construct dense matrices")
 
     # Backsolve using an adjacency list
-    #t_solve = 0.0
-    #t_loop = 0.0
-    #t_multiply = 0.0
-    #_t = time()
+    t_solve = 0.0
+    t_loop = 0.0
+    t_multiply = 0.0
+    _t = time()
+    println()
+    println("Entering backsolve loop for $nblock blocks")
     for b in 1:nblock
-        #local _t = time()
+        local _t = time()
         #solve!(diagonal_block_matrices[b], rhs_blocks[b])
         # TODO: `ldiv!`?
         rhs_blocks[b] .= factors[b] \ rhs_blocks[b]
-        #t_solve += time() - _t
+        #LinearAlgebra.rdiv!(factors[b], rhs_blocks[b])
+        t_solve += time() - _t
         # Look up positions of this node's out-edges in edgelist
         for e in edgestart_by_block[b]:edgeend_by_block[b]
             _, j = dag[e]
-            #local _t = time()
+            local _t = time()
             rhs_blocks[j] .-= off_diagonal_matrices[e] * rhs_blocks[b]
-            #t_multiply += time() - _t
+            dt = time() - _t
+            t_multiply += dt
+            println("Subtracting the product for edge $e, between nodes $b and $j, took $(@sprintf("%1.1f", dt)) s")
+            #display(SparseArrays.sparse(off_diagonal_matrices[e]))
         end
     end
-    #t_loop = time() - _t
-    #println("---------------")
-    #println("Backsolve loop:")
-    #println("Solve:   $t_solve")
-    #println("Mutiply: $t_multiply")
-    #println("Other:   $(t_loop-t_solve-t_multiply)")
-    #println("---------------")
+    t_loop = time() - _t
+    println("---------------")
+    println("Backsolve loop:")
+    println("Solve:   $t_solve")
+    println("Mutiply: $t_multiply")
+    println("Other:   $(t_loop-t_solve-t_multiply)")
+    println("---------------")
     dt = time() - _t
     println("[$dt] Backsolve")
     # By updating B in-place, we have implicitly applied the inverse

@@ -268,12 +268,12 @@ function test_mnist_nn_kkt()
     nrhs = 100
     # We skip the test as there is a significant amount of error for these relatively
     # large systems.
-    res = _test_matrix(C_full; nrhs, atol = 1e-5, skiptest = true)
-    println("Timing breakdown")
-    println("----------------")
-    println("Initialization: $(res.time.initialize)")
-    println("Factorization:  $(res.time.factorize)")
-    println("Solve (x$nrhs):  $(res.time.solve)")
+    #res = _test_matrix(C_full; nrhs, atol = 1e-5, skiptest = true)
+    #println("Timing breakdown")
+    #println("----------------")
+    #println("Initialization: $(res.time.initialize)")
+    #println("Factorization:  $(res.time.factorize)")
+    #println("Solve (x$nrhs):  $(res.time.solve)")
 
     # Maps indices in the original space to their index in the pivot matrix
     index_remap = Dict((p, i) for (i, p) in enumerate(P))
@@ -293,7 +293,18 @@ function test_mnist_nn_kkt()
         varindices = [index_remap[i] for i in var_indices_by_layer[l]]
         push!(blocks, (varindices, conindices))
     end
+    #aggregated_blocks = []
+    #for (i, (rows, cols)) in enumerate(blocks)
+    #    if Bool(i % 2)
+    #        push!(aggregated_blocks, (rows, cols))
+    #    else
+    #        prevrows, prevcols = last(aggregated_blocks)
+    #        append!(prevrows, rows)
+    #        append!(prevcols, cols)
+    #    end
+    #end
 
+    nrhs = 1000
     res = _test_matrix(C_full; blocks, nrhs, atol = 1e-5, skiptest = true)
     println("Timing breakdown")
     println("----------------")
