@@ -317,7 +317,9 @@ function solve!(solver::BlockTriangularSolver, rhs::Matrix)
     end
 
     # We partition the RHS by row blocks of the original matrix
-    rhs_blocks = map(b -> view(rhs, b[1], :), blocks)
+    #rhs_blocks = map(b -> view(rhs, b[1], :), blocks)
+    # `rhs_blocks` now contains a copy of rhs
+    rhs_blocks = map(b -> rhs[b[1], :], blocks)
 
     off_diagonal_nz = solver.off_diagonal_nz
     off_diagonal_nzperm = solver.off_diagonal_nzperm
@@ -356,6 +358,7 @@ function solve!(solver::BlockTriangularSolver, rhs::Matrix)
     t_solve = 0.0
     t_loop = 0.0
     t_multiply = 0.0
+    t_subtract = 0.0
     _t = time()
     println()
     println("Entering backsolve loop for $nblock blocks")
@@ -370,22 +373,31 @@ function solve!(solver::BlockTriangularSolver, rhs::Matrix)
         for e in edgestart_by_block[b]:edgeend_by_block[b]
             _, j = dag[e]
             local _t = time()
-            rhs_blocks[j] .-= off_diagonal_matrices[e] * rhs_blocks[b]
+            #rhs_blocks[j] .-= off_diagonal_matrices[e] * rhs_blocks[b]
+            temp = off_diagonal_matrices[e] * rhs_blocks[b]
             dt = time() - _t
             t_multiply += dt
-            println("Subtracting the product for edge $e, between nodes $b and $j, took $(@sprintf("%1.1f", dt)) s")
+            rhs_blocks[j] .-= temp
+            t_subtract += time() - _t - dt
+            #println("Subtracting the product for edge $e, between nodes $b and $j, took $(@sprintf("%1.1f", dt)) s")
             #display(SparseArrays.sparse(off_diagonal_matrices[e]))
         end
     end
     t_loop = time() - _t
     println("---------------")
     println("Backsolve loop:")
-    println("Solve:   $t_solve")
-    println("Mutiply: $t_multiply")
-    println("Other:   $(t_loop-t_solve-t_multiply)")
+    println("Solve:    $t_solve")
+    println("Mutiply:  $t_multiply")
+    println("Subtract: $t_subtract")
+    println("Other:    $(t_loop-t_solve-t_multiply-t_subtract)")
     println("---------------")
     dt = time() - _t
     println("[$dt] Backsolve")
+    for (i, rhs_i) in enumerate(rhs_blocks)
+        rhs[blocks[i][1], :] .= rhs_i
+    end
+    dt = time() - _t
+    println("[$dt] Update rhs")
     # By updating B in-place, we have implicitly applied the inverse
     # row permutation to our solution. We must undo this row permutation
     # *and* apply the column permutation to our solution in order to
