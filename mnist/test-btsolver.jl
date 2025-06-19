@@ -227,14 +227,17 @@ function test_nn_kkt_symmetric_inverse()
     @test all(symmetric_diffs .<= 1e-8)
 end
 
-function test_mnist_nn_kkt()
+function test_mnist_nn_kkt(;
+    nrhs = 10,
+    nnfname = "mnist-relu128nodes4layers.pt",
+    skip_auto_btf = false,
+)
     IMAGE_INDEX = 7
     ADVERSARIAL_LABEL = 1
     THRESHOLD = 0.6
-    #nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
-    nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
-    nnfile = joinpath("nn-models", "mnist-relu2048nodes4layers.pt")
+    nnfile = joinpath("nn-models", nnfname)
     if !isfile(nnfile)
+        @error("$nnfile does not exist or is not a file")
         return
     end
     model, outputs, formulation = get_adversarial_model(
@@ -265,15 +268,17 @@ function test_mnist_nn_kkt()
     V = V[to_retain]
     C = SparseArrays.sparse(I, J, V, C_orig.m, C_orig.n)
     C_full = fill_upper_triangle(C)
-    nrhs = 100
     # We skip the test as there is a significant amount of error for these relatively
     # large systems.
-    #res = _test_matrix(C_full; nrhs, atol = 1e-5, skiptest = true)
-    #println("Timing breakdown")
-    #println("----------------")
-    #println("Initialization: $(res.time.initialize)")
-    #println("Factorization:  $(res.time.factorize)")
-    #println("Solve (x$nrhs):  $(res.time.solve)")
+    if !skip_auto_btf
+        res = _test_matrix(C_full; nrhs, atol = 1e-5, skiptest = true)
+        println("Timing breakdown")
+        println("----------------")
+        println("Initialization: $(res.time.initialize)")
+        println("Factorization:  $(res.time.factorize)")
+        println("Solve (x$nrhs):  $(res.time.solve)")
+        println()
+    end
 
     # Maps indices in the original space to their index in the pivot matrix
     index_remap = Dict((p, i) for (i, p) in enumerate(P))
@@ -304,13 +309,13 @@ function test_mnist_nn_kkt()
     #    end
     #end
 
-    nrhs = 1000
     res = _test_matrix(C_full; blocks, nrhs, atol = 1e-5, skiptest = true)
     println("Timing breakdown")
     println("----------------")
     println("Initialization: $(res.time.initialize)")
     println("Factorization:  $(res.time.factorize)")
     println("Solve (x$nrhs):  $(res.time.solve)")
+    println()
 end
 
 @testset begin
@@ -321,5 +326,7 @@ end
     #test_nn_jacobian()
     #test_nn_kkt()
     #test_nn_kkt_symmetric_inverse()
-    test_mnist_nn_kkt()
+    #nnfname = "mnist-relu1024nodes4layers.pt"
+    nnfname = "mnist-relu2048nodes4layers.pt"
+    test_mnist_nn_kkt(; nrhs = 1000, nnfname, skip_auto_btf = true)
 end
