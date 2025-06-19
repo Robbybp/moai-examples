@@ -345,12 +345,12 @@ function solve!(solver::BlockTriangularSolver, rhs::Matrix)
     println("[$dt] Update nzval")
 
     # What happens if I use dense off-diagonal blocks?
-    off_diagonal_matrices = map(m -> Matrix(m), off_diagonal_matrices)
-    #off_diagonal_matrices = map(
-    #    # Some quick heuristic to switch between sparse and dense?
-    #    matrix -> SparseArrays.nnz(matrix) >= 0.01*matrix.m*matrix.n ? Matrix(matrix) : matrix,
-    #    off_diagonal_matrices,
-    #)
+    #off_diagonal_matrices = map(m -> Matrix(m), off_diagonal_matrices)
+    off_diagonal_matrices = map(
+        # Some quick heuristic to switch between sparse and dense?
+        matrix -> SparseArrays.nnz(matrix) >= 0.01*matrix.m*matrix.n ? Matrix(matrix) : matrix,
+        off_diagonal_matrices,
+    )
     dt = time() - _t
     println("[$dt] Construct dense matrices")
 
@@ -361,12 +361,13 @@ function solve!(solver::BlockTriangularSolver, rhs::Matrix)
     t_subtract = 0.0
     _t = time()
     println()
-    println("Entering backsolve loop for $nblock blocks")
+    println("Entering backsolve loop for $nblock blocks and $nedges edges")
     for b in 1:nblock
         local _t = time()
         #solve!(diagonal_block_matrices[b], rhs_blocks[b])
         # TODO: `ldiv!`?
-        rhs_blocks[b] .= factors[b] \ rhs_blocks[b]
+        #rhs_blocks[b] .= factors[b] \ rhs_blocks[b]
+        LinearAlgebra.ldiv!(factors[b], rhs_blocks[b])
         #LinearAlgebra.rdiv!(factors[b], rhs_blocks[b])
         t_solve += time() - _t
         # Look up positions of this node's out-edges in edgelist
@@ -390,6 +391,7 @@ function solve!(solver::BlockTriangularSolver, rhs::Matrix)
     println("Mutiply:  $t_multiply")
     println("Subtract: $t_subtract")
     println("Other:    $(t_loop-t_solve-t_multiply-t_subtract)")
+    println("Total:    $t_loop")
     println("---------------")
     dt = time() - _t
     println("[$dt] Backsolve")
