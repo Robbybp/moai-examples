@@ -365,12 +365,12 @@ function solve!(solver::BlockTriangularSolver, rhs::Matrix)
     for b in 1:nblock
         local _t = time()
         #solve!(diagonal_block_matrices[b], rhs_blocks[b])
-        # TODO: `ldiv!`?
-        #rhs_blocks[b] .= factors[b] \ rhs_blocks[b]
         LinearAlgebra.ldiv!(factors[b], rhs_blocks[b])
-        #LinearAlgebra.rdiv!(factors[b], rhs_blocks[b])
         t_solve += time() - _t
         # Look up positions of this node's out-edges in edgelist
+        # TODO: It may be worth stacking the matrices corresponding to out-edges
+        # and doing all of this in one multiplication + subtraction. This is possible
+        # because all out-edges can be processed independently.
         for e in edgestart_by_block[b]:edgeend_by_block[b]
             _, j = dag[e]
             local _t = time()
