@@ -2,16 +2,34 @@ import SparseArrays
 import LinearAlgebra
 import MathProgIncidence
 import MadNLP
+import BlockDiagonals
 
 mutable struct BlockTriangularSolver
     csc::SparseArrays.SparseMatrixCSC
     blocks::Vector{Tuple{Vector{Int},Vector{Int}}}
 
     # Data structures for factorization
-    diagonal_block_matrices::Vector{Matrix}
+    diagonal_block_matrices::Vector{Union{Matrix,BlockDiagonals.BlockDiagonal}}
     #factors::Vector{<:LinearAlgebra.Factorization}
     # Using Vector{Any} here because LinearAlgebra.factorize doesn't
     # appear to be type-stable.
+    #
+    # TODO: Custom factorization object for block-diagonal matrices
+    # Or, I try to store the factors in-place. But this breaks down
+    # when my blocks are themselves block-triangular rather than
+    # block-diagonal.
+    # ^ Actually, I think this is fine. The factor of an LT matrix
+    # is itself. It only breaks down for *block* LT matrices.
+    #
+    # - If the matrix is diagonal, use built-in `factorize`
+    # - If the matrix is LT, use built-in `factorize`
+    # - If the matrix is block-diagonal, use built-in factorize on
+    #   diagonal blocks?
+    #
+    # What does this look like now? I would like to store either
+    # Matrix or BlockDiagonal for each diagonal block. So the above
+    # also needs to be `Vector{Any}`. Then I will simply call
+    # factorize.(diagonal_block_matrices).
     factors::Vector{Any}
 
     # The following is the minimal data I need for the backsolve
@@ -45,6 +63,7 @@ function BlockTriangularSolver(
         blocks = MathProgIncidence.block_triangularize(igraph)
     else
         # If blocks were provided, we need to make sure they partition the row/column indices
+        # I also should make sure they give an LT ordering. TODO.
         all_row_indices = mapreduce(b -> b[1], vcat, blocks)
         all_col_indices = mapreduce(b -> b[2], vcat, blocks)
         expected_indices = Set(1:dim)
@@ -54,17 +73,34 @@ function BlockTriangularSolver(
         @assert issubset(all_col_indices, expected_indices)
     end
     blocksizes = map(b -> length(first(b)), blocks)
-    #if any(blocksizes .> max_blocksize)
-    #    error(
-    #        "Block triangular form has a block greater than the max blocksize of"
-    #        * " $max_blocksize"
-    #    )
-    #end
-    # NOTE: It may be inefficient to store 1x1 blocks in a matrix, but this hasn't
-    # shown up in a profile yet.
-    diagonal_block_matrices = map(b -> zeros(b, b), blocksizes)
-    #factors = LinearAlgebra.Factorization[]
-    factors = []
+
+    # Here, I must determine how to store each matrix. For now, the options
+    # are `Matrix` or `BlockDiagonal`. I need to use a custom type in order
+    # to use the correct `factorize` method.
+    # 
+    # The problem is that I don't actually have the matrices explicitly here.
+    # Extracting dense matrices is unreliable due to explicit zeros.
+    csc_blocks = ...
+    # Once I have a sparse matrix for every block:
+    block_ccs = connected_components.(csc_blocks)
+    # Block-diagonal blocksizes
+    bd_blocksizes = map(ccs -> map(cc -> length(cc), ccs[1]), block_ccs)
+    # What is my criteria for using BlockDiagonal?
+    use_block_diagonal = map(
+        # We use BlockDiagonal if the block-diagonal blocksize is no more than
+        # 10% of the block-triangular blocksize.
+        i -> maximum(bd_blocksizes[i]) / blocksizes[i] <= 0.1,
+        1:length(blocks),
+    )
+    diagonal_block_matrices = convert(Vector{Any}, map(b -> zeros(b, b), blocksizes))
+    digaonal_block_matrices[use_block_diagonal] .= BlockDiagonals.BlockDiagonal.(
+        diagonal_block_matrices[use_block_diagonal],
+        bd_blocksizes[use_block_diagonal],
+    )
+
+    # This will contain the outputs of LinearAlgebra.factorize, which is not
+    # type-stable.
+    factors = Any[]
 
     nblock = length(blocks)
     nnz = SparseArrays.nnz(csc)
@@ -160,6 +196,7 @@ function BlockTriangularSolver(
         csc,
         blocks,
         diagonal_block_matrices,
+        # TODO: factor_types,
         factors,
         off_diagonal_nz,
         off_diagonal_nzperm,
@@ -255,6 +292,20 @@ function factorize!(solver::BlockTriangularSolver)
     dt = time() - t0
     println("[$dt] Loop over nonzeros")
     # Note that this allocates new Factorization objects.
+    # This doesn't appear to exploit block-diagonal form. I can extend `factorize`
+    # to accept BlockDiagonals.BlockDiagonal, but then I need to update
+    # the BlockDiagonal in this method.
+    # This would look something like this:
+    #
+    #   bd_matrices[k].blocks[i] .= block_matrices[k][rowcc[i], colcc[i]]
+    # 
+    # And it gets more complicated if I want to omit block_matrices for the
+    # BD matrices, and just update directly from the user's csc instead.
+    #
+    # This seems a little involved, especially as we need to determine
+    # which indices[k] actually use the BlockDiagonal data structure.
+    # Whereas, if BlockDiagonal knew about the above matrices that we've
+    # updated, we could handle the update inside `factorize`.
     factors = LinearAlgebra.factorize.(block_matrices)
     solver.factors = factors
     #factorize!.(block_matrices)
@@ -365,6 +416,9 @@ function solve!(solver::BlockTriangularSolver, rhs::Matrix)
     for b in 1:nblock
         local _t = time()
         #solve!(diagonal_block_matrices[b], rhs_blocks[b])
+        # What ever struct I return from `factorize`, it should support
+        # ldiv!. This way I can return Julia built-in factors as well
+        # if they're convenient and performant.
         LinearAlgebra.ldiv!(factors[b], rhs_blocks[b])
         t_solve += time() - _t
         # Look up positions of this node's out-edges in edgelist
