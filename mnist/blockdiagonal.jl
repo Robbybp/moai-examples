@@ -70,35 +70,55 @@ function connected_components(matrix::Matrix)
     csc = SparseArrays.sparse(matrix)
     igraph = MathProgIncidence.IncidenceGraphInterface(csc)
     rowcc, colcc = MathProgIncidence.connected_components(igraph)
+    # CCs don't have an inherent order, so we give them one based on
+    # the minimum row index. TODO: This should be done by MathProgIncidence
+    ncc = length(rowcc)
+    order = sort(1:ncc; by = i -> minimum(rowcc[i]))
+    rowcc = rowcc[order]
+    colcc = colcc[order]
     return rowcc, colcc
-    # It is easy to get the permutation and the blocksizes from these
-    # partitions.
 end
 
 struct BlockDiagonalLU
-    index_partition::Vector{UnitRange}
+    row_partition::Vector{Vector{Int}}
+    col_partition::Vector{Vector{Int}}
     factors::Vector{LinearAlgebra.LU}
-    function BlockDiagonalLU(bm::BlockDiagonals.BlockDiagonal)
-        index_partition = []
-        blocksizes = BlockDiagonals.blocksizes(bm)
-        start = 1
-        for (nrow, ncol) in blocksizes
-            @assert nrow == ncol
-            push!(index_partition, start:(start + nrow - 1))
-            start += nrow
-        end
-        # TODO: use `lu!`? This modifies bm in-place, which should be fine
-        factors = LinearAlgebra.lu(BlockDiagonals.blocks(bm))
-        return BlockDiagonalLU(factors)
-    end
+    #index_partition::Vector{UnitRange}
+    #factors::Vector{LinearAlgebra.LU}
+    #function BlockDiagonalLU(bm::BlockDiagonals.BlockDiagonal)
+    #    index_partition = []
+    #    blocksizes = BlockDiagonals.blocksizes(bm)
+    #    start = 1
+    #    for (nrow, ncol) in blocksizes
+    #        @assert nrow == ncol
+    #        push!(index_partition, start:(start + nrow - 1))
+    #        start += nrow
+    #    end
+    #    # TODO: use `lu!`? This modifies bm in-place, which should be fine
+    #    factors = LinearAlgebra.lu(BlockDiagonals.blocks(bm))
+    #    return BlockDiagonalLU(factors)
+    #end
 end
 
 function LinearAlgebra.lu(bm::BlockDiagonals.BlockDiagonal)
     return BlockDiagonalLU(bm)
 end
 
+function LinearAlgebra.lu(bd::BlockDiagonalView)
+    # Update diagonal block matrices
+    for (i, block) in enumerate(bd.blocks)
+        block .= bd.matrix[bd.row_partition[i], bd.col_partition[i]]
+    end
+    factors = LinearAlgebra.lu.(bd.blocks)
+    return BlockDiagonalLU(bd.row_partition, bd.col_partition, factors)
+end
+
 function LinearAlgebra.factorize(bm::BlockDiagonals.BlockDiagonal)
     return BlockDiagonalLU(bm)
+end
+
+function LinearAlgebra.factorize(bd::BlockDiagonalView)
+    return LinearAlgebra.lu(bd)
 end
 
 function LinearAlgebra.ldiv!(lu::BlockDiagonalLU, rhs::Vector)
@@ -109,8 +129,10 @@ function LinearAlgebra.ldiv!(lu::BlockDiagonalLU, rhs::Vector)
 end
 
 function LinearAlgebra.ldiv!(lu::BlockDiagonalLU, rhs::Matrix)
-    rhs_blocks = map(indices -> rhs[indices, :], lu.index_partition)
-    ldiv!.(lu.factors, rhs_blocks)
-    rhs[indices] .= rhs_blocks[i]
+    rhs_blocks = map(indices -> rhs[indices, :], lu.row_partition)
+    LinearAlgebra.ldiv!.(lu.factors, rhs_blocks)
+    for (i, indices) in enumerate(lu.col_partition)
+        rhs[indices, :] .= rhs_blocks[i]
+    end
     return rhs
 end
