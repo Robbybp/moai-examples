@@ -328,5 +328,5 @@ end
     #test_nn_kkt_symmetric_inverse()
     #nnfname = "mnist-relu1024nodes4layers.pt"
     nnfname = "mnist-relu2048nodes4layers.pt"
-    test_mnist_nn_kkt(; nrhs = 1000, nnfname, skip_auto_btf = true)
+    test_mnist_nn_kkt(; nrhs = 1000, nnfname, skip_auto_btf = false)
 end

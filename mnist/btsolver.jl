@@ -5,6 +5,8 @@ import MadNLP
 # I'm currently not planning to use BlockDiagonals
 #import BlockDiagonals
 
+include("blockdiagonal.jl")
+
 mutable struct BlockTriangularSolver
     csc::SparseArrays.SparseMatrixCSC
     blocks::Vector{Tuple{Vector{Int},Vector{Int}}}
@@ -88,23 +90,25 @@ function BlockTriangularSolver(
     # Extracting dense matrices is unreliable due to explicit zeros.
     csc_blocks = map(b -> csc[b...], blocks)
     # Once I have a sparse matrix for every block:
-    block_ccs = connected_components.(csc_blocks)
+    block_ccs = MathProgIncidence.connected_components.(csc_blocks)
     # Block-diagonal blocksizes
     bd_blocksizes = map(ccs -> map(cc -> length(cc), ccs[1]), block_ccs)
     # What is my criteria for using BlockDiagonal?
-    use_block_diagonal = map(
-        # We use BlockDiagonal if the block-diagonal blocksize is no more than
-        # 10% of the block-triangular blocksize.
-        i -> maximum(bd_blocksizes[i]) / blocksizes[i] <= 0.1,
-        1:length(blocks),
-    )
+    #use_block_diagonal = filter(
+    #    # We use BlockDiagonal if the block-diagonal blocksize is no more than
+    #    # 10% of the block-triangular blocksize.
+    #    i -> maximum(bd_blocksizes[i]) / blocksizes[i] <= 0.1,
+    #    1:length(blocks),
+    #)
+    use_block_diagonal = collect(1:length(blocks))
+    # TODO: Should I also store the indices for which we *don't* use block diagonalization?
 
     diagonal_block_matrices = map(b -> zeros(b, b), blocksizes)
     blockdiagonal_views = map(
         i -> BlockDiagonalView(diagonal_block_matrices[i], block_ccs[i]...),
         use_block_diagonal,
     )
-    #digaonal_block_matrices[use_block_diagonal] .= BlockDiagonalView.(
+    #diagonal_block_matrices[use_block_diagonal] .= BlockDiagonalView.(
     #    diagonal_block_matrices[use_block_diagonal],
     #    bd_blocksizes[use_block_diagonal],
     #)
@@ -304,23 +308,11 @@ function factorize!(solver::BlockTriangularSolver)
     dt = time() - t0
     println("[$dt] Loop over nonzeros")
     # Note that this allocates new Factorization objects.
-    # This doesn't appear to exploit block-diagonal form. I can extend `factorize`
-    # to accept BlockDiagonals.BlockDiagonal, but then I need to update
-    # the BlockDiagonal in this method.
-    # This would look something like this:
-    #
-    #   bd_matrices[k].blocks[i] .= block_matrices[k][rowcc[i], colcc[i]]
-    # 
-    # And it gets more complicated if I want to omit block_matrices for the
-    # BD matrices, and just update directly from the user's csc instead.
-    #
-    # This seems a little involved, especially as we need to determine
-    # which indices[k] actually use the BlockDiagonal data structure.
-    # Whereas, if BlockDiagonal knew about the above matrices that we've
-    # updated, we could handle the update inside `factorize`.
-    factors = LinearAlgebra.factorize.(block_matrices)
+    # Note that if I'm only block-diagonalizing a subset of the blocks, I need
+    # to call factorize in two rounds: Once for the raw matrices and once for
+    # the `BlockDiagonalView`s.
+    factors = LinearAlgebra.factorize.(solver.blockdiagonal_views)
     solver.factors = factors
-    #factorize!.(block_matrices)
     dt = time() - t0
     println("[$dt] factorize")
     return
