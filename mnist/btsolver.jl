@@ -2,14 +2,20 @@ import SparseArrays
 import LinearAlgebra
 import MathProgIncidence
 import MadNLP
-import BlockDiagonals
+# I'm currently not planning to use BlockDiagonals
+#import BlockDiagonals
 
 mutable struct BlockTriangularSolver
     csc::SparseArrays.SparseMatrixCSC
     blocks::Vector{Tuple{Vector{Int},Vector{Int}}}
 
     # Data structures for factorization
-    diagonal_block_matrices::Vector{Union{Matrix,BlockDiagonals.BlockDiagonal}}
+    diagonal_block_matrices::Vector{Matrix}
+    blockdiagonal_views::Vector{BlockDiagonalView}
+    # Indices, within `diagonal_block_matrices`, of matrices that we will
+    # block-diagonalize. (or should I just block-diagonalize all of these
+    # matrices?)
+    blockdiagonal_indices::Vector{Int}
     #factors::Vector{<:LinearAlgebra.Factorization}
     # Using Vector{Any} here because LinearAlgebra.factorize doesn't
     # appear to be type-stable.
@@ -80,7 +86,7 @@ function BlockTriangularSolver(
     # 
     # The problem is that I don't actually have the matrices explicitly here.
     # Extracting dense matrices is unreliable due to explicit zeros.
-    csc_blocks = ...
+    csc_blocks = map(b -> csc[b...], blocks)
     # Once I have a sparse matrix for every block:
     block_ccs = connected_components.(csc_blocks)
     # Block-diagonal blocksizes
@@ -92,11 +98,16 @@ function BlockTriangularSolver(
         i -> maximum(bd_blocksizes[i]) / blocksizes[i] <= 0.1,
         1:length(blocks),
     )
-    diagonal_block_matrices = convert(Vector{Any}, map(b -> zeros(b, b), blocksizes))
-    digaonal_block_matrices[use_block_diagonal] .= BlockDiagonals.BlockDiagonal.(
-        diagonal_block_matrices[use_block_diagonal],
-        bd_blocksizes[use_block_diagonal],
+
+    diagonal_block_matrices = map(b -> zeros(b, b), blocksizes)
+    blockdiagonal_views = map(
+        i -> BlockDiagonalView(diagonal_block_matrices[i], block_ccs[i]...),
+        use_block_diagonal,
     )
+    #digaonal_block_matrices[use_block_diagonal] .= BlockDiagonalView.(
+    #    diagonal_block_matrices[use_block_diagonal],
+    #    bd_blocksizes[use_block_diagonal],
+    #)
 
     # This will contain the outputs of LinearAlgebra.factorize, which is not
     # type-stable.
@@ -196,7 +207,8 @@ function BlockTriangularSolver(
         csc,
         blocks,
         diagonal_block_matrices,
-        # TODO: factor_types,
+        blockdiagonal_views,
+        use_block_diagonal,
         factors,
         off_diagonal_nz,
         off_diagonal_nzperm,
