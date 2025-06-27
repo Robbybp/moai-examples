@@ -112,7 +112,7 @@ end
 struct SchurComplementSolver{T,INT} <: MadNLP.AbstractLinearSolver{T}
     csc::SparseArrays.SparseMatrixCSC{T,INT}
     reduced_solver::MadNLP.AbstractLinearSolver{T}
-    schur_solver::MadNLP.AbstractLinearSolver{T}
+    pivot_solver::MadNLP.AbstractLinearSolver{T}
     # These are indices on which we pivot rows and columns.
     pivot_indices::Vector{INT}
     timer::SchurComplementTimer
@@ -216,12 +216,12 @@ function SchurComplementSolver(
     reduced_matrix = SparseArrays.sparse(I, J, V)
 
     pivot_matrix = csc[P, P]
-    schur_solver = PivotSolver(pivot_matrix; logger)
+    pivot_solver = PivotSolver(pivot_matrix; logger)
 
     # This is some experimental code for getting the reduced matrix's nonzeros
     # experimentally, from a factorization.
     # For some reason, it didn't work. I forget why.
-    #MadNLP.factorize!(schur_solver)
+    #MadNLP.factorize!(pivot_solver)
     # Assuming that this matrix gives us a superset of all possible nonzeros
     #reduced_matrix = _sparse_schur(csc, pivot_indices)
 
@@ -273,13 +273,13 @@ function SchurComplementSolver(
     timer.initialize += time() - t_start
 
     return SchurComplementSolver{FloatType,IntType}(
-        csc, reduced_solver, schur_solver, pivot_indices, timer
+        csc, reduced_solver, pivot_solver, pivot_indices, timer
     )
 end
 
 function MadNLP.introduce(solver::SchurComplementSolver)
     rsolvername = MadNLP.introduce(solver.reduced_solver)
-    ssolvername = MadNLP.introduce(solver.schur_solver)
+    ssolvername = MadNLP.introduce(solver.pivot_solver)
     pivot_dim = length(solver.pivot_indices)
     return (
         "A Schur-complement solver with reduced subsolver $(rsolvername) and Schur subsolver $(ssolvername)"
@@ -310,11 +310,11 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     #)
 
     t_start = time()
-    solver.schur_solver.csc.nzval[:] = solver.csc[solver.pivot_indices, solver.pivot_indices].nzval
+    solver.pivot_solver.csc.nzval[:] = solver.csc[solver.pivot_indices, solver.pivot_indices].nzval
     solver.timer.factorize.update_pivot += time() - t_start
 
     t_pivot_start = time()
-    MadNLP.factorize!(solver.schur_solver)
+    MadNLP.factorize!(solver.pivot_solver)
     solver.timer.factorize.pivot += time() - t_pivot_start
 
     # KKT matrix has the following structure:
@@ -353,14 +353,14 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     compressed_sol = sol[:, nonempty_cols]
     # Backsolve over a matrix of RHSs. Note that this produces dense solutions
     # and relies on local extensions of `MadNLP.solve!`.
-    MadNLP.solve!(solver.schur_solver, compressed_sol)
+    MadNLP.solve!(solver.pivot_solver, compressed_sol)
     sol[:, nonempty_cols] = compressed_sol
 
     solver.timer.factorize.solve += time() - t_solve_start
     #println("B:")
     #display(B)
     #println("C:")
-    #display(solver.schur_solver.csc)
+    #display(solver.pivot_solver.csc)
     t_multiply_start = time()
     term2 = B' * SparseArrays.sparse(sol)
     solver.timer.factorize.multiply += time() - t_multiply_start
@@ -404,7 +404,7 @@ end
 function MadNLP.is_inertia(solver::SchurComplementSolver)
     # We already know the inertia for the Schur system
     return MadNLP.is_inertia(solver.reduced_solver)
-    #return MadNLP.is_inertia(solver.reduced_solver) && MadNLP.is_inertia(solver.schur_solver)
+    #return MadNLP.is_inertia(solver.reduced_solver) && MadNLP.is_inertia(solver.pivot_solver)
 end
 
 function MadNLP.inertia(solver::SchurComplementSolver)
@@ -417,7 +417,7 @@ function MadNLP.inertia(solver::SchurComplementSolver)
     return (pos + Int(pivot_dim/2), zero, neg + Int(pivot_dim/2))
 
     # Or we compute inertia by the Haynsworth formula
-    #pivot_inertia = MadNLP.inertia(solver.schur_solver)
+    #pivot_inertia = MadNLP.inertia(solver.pivot_solver)
     #println("Pivot system: (pos, zero, neg) = $pivot_inertia")
     #return reduced_inertia .+ pivot_inertia
 end
@@ -451,14 +451,14 @@ function MadNLP.solve!(solver::SchurComplementSolver{T,INT}, rhs::Vector{T}) whe
     B = solver.csc[P, R] + solver.csc[R, P]'
 
     temp = copy(orig_rhs_pivot)
-    MadNLP.solve!(solver.schur_solver, temp)
+    MadNLP.solve!(solver.pivot_solver, temp)
     #println("C^-1 r_x")
     #display(temp)
     rhs_reduced = orig_rhs_reduced - B' * temp
 
     MadNLP.solve!(solver.reduced_solver, rhs_reduced)
     rhs_pivot = orig_rhs_pivot - B * rhs_reduced
-    MadNLP.solve!(solver.schur_solver, rhs_pivot)
+    MadNLP.solve!(solver.pivot_solver, rhs_pivot)
     rhs[R] .= rhs_reduced
     rhs[P] .= rhs_pivot
     solver.timer.solve += time() - t_start
