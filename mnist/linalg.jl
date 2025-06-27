@@ -95,6 +95,9 @@ mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions
     ReducedSolver::Type
     PivotSolver::Type
     pivot_indices::Vector{INT}
+    # TODO: Vector{Tuple{Vector{INT},Vector{INT}}}. I.e., use same int type.
+    # TODO: Move pivot_index_partition to BTSolverOptions or something.
+    pivot_index_partition::Union{Nothing,Vector}
     function SchurComplementOptions(;
         # TODO: Non-third party default subsolver
         ReducedSolver = MadNLPHSL.Ma27Solver,
@@ -105,6 +108,7 @@ mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions
             ReducedSolver,
             PivotSolver,
             pivot_indices,
+            nothing,
         )
     end
 end
@@ -160,6 +164,7 @@ function SchurComplementSolver(
     ReducedSolver::Type = opt.ReducedSolver,
     PivotSolver::Type = opt.PivotSolver,
     pivot_indices::Vector{INT} = opt.pivot_indices,
+    pivot_index_partition = opt.pivot_index_partition,
 ) where {T,INT}
     FloatType = eltype(csc.nzval)
     IntType = eltype(csc.rowval)
@@ -216,7 +221,13 @@ function SchurComplementSolver(
     reduced_matrix = SparseArrays.sparse(I, J, V)
 
     pivot_matrix = csc[P, P]
-    pivot_solver = PivotSolver(pivot_matrix; logger)
+    # TODO: Use an option struct for PivotSolver and avoid branching here.
+    if pivot_index_partition === nothing
+        pivot_solver = PivotSolver(pivot_matrix; logger)
+    else
+        # TODO: What processing is necessary before using pivot_index_partition?
+        pivot_solver = PivotSolver(pivot_matrix; blocks = pivot_index_partition, logger)
+    end
 
     # This is some experimental code for getting the reduced matrix's nonzeros
     # experimentally, from a factorization.

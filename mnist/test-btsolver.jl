@@ -33,11 +33,11 @@ function _test_matrix(
     end
     t_init = time() - _t
     _t = time()
-    factorize!(btsolver)
+    MadNLP.factorize!(btsolver)
     t_fact = time() - _t
     sol = copy(rhs)
     _t = time()
-    solve!(btsolver, sol)
+    MadNLP.solve!(btsolver, sol)
     t_solve = time() - _t
 
     if !skiptest
@@ -210,9 +210,9 @@ function test_nn_kkt_symmetric_inverse()
     # By using the identity matrix as the RHS, we recover the inverse.
     rhs = LinearAlgebra.diagm(ones(pivot_dim))
     btsolver = BlockTriangularSolver(pivot_matrix)
-    factorize!(btsolver)
+    MadNLP.factorize!(btsolver)
     sol = copy(rhs)
-    solve!(btsolver, sol)
+    MadNLP.solve!(btsolver, sol)
     baseline = pivot_matrix \ rhs
     @test all(isapprox.(sol, baseline; atol = 1e-8))
 

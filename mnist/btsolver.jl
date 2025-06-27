@@ -5,8 +5,13 @@ import MadNLP
 
 include("blockdiagonal.jl")
 
-mutable struct BlockTriangularSolver
+mutable struct BlockTriangularSolver <: MadNLP.AbstractLinearSolver{Float64}
     csc::SparseArrays.SparseMatrixCSC
+    # TODO: `full_matrix` field. This stores the full matrix (rather than just
+    # the lower triangle). I probably also need a `symmetric` flag to detect
+    # whether we need to update the upper triangle separately when updating
+    # the full matrix. Then I update the factorize/solve methods to just use
+    # `full_matrix` rather than `csc`.
     blocks::Vector{Tuple{Vector{Int},Vector{Int}}}
 
     # Data structures for factorization
@@ -35,9 +40,12 @@ mutable struct BlockTriangularSolver
     off_diagonal_matrices::Vector{SparseArrays.SparseMatrixCSC}
 end
 
+# TODO: symmetric = true construction flag.
+# Default should be `true` so we don't need a special option in SchurComplement
 function BlockTriangularSolver(
     csc::SparseArrays.SparseMatrixCSC;
     blocks::Union{Vector,Nothing} = nothing,
+    logger::MadNLP.MadNLPLogger = MadNLP.MadNLPLogger(),
 )
     @assert csc.m == csc.n
     dim = csc.m
@@ -229,7 +237,7 @@ function factorize_d2!(matrices::Array{Float64,3})
     return
 end
 
-function factorize!(solver::BlockTriangularSolver)
+function MadNLP.factorize!(solver::BlockTriangularSolver)
     t0 = time()
     csc = solver.csc
     blocks = solver.blocks
@@ -285,7 +293,7 @@ function factorize!(solver::BlockTriangularSolver)
     return
 end
 
-function solve!(solver::BlockTriangularSolver, rhs::Vector)
+function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Vector)
     rhs = reshape(rhs, length(rhs), 1)
     return solve!(solver, rhs)
 end
@@ -322,7 +330,7 @@ function solve!(lu::Matrix{Float64}, rhs)
     end
 end
 
-function solve!(solver::BlockTriangularSolver, rhs::Matrix)
+function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Matrix)
     _t = time()
     csc = solver.csc
     blocks = solver.blocks
