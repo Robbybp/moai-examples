@@ -12,30 +12,11 @@ mutable struct BlockTriangularSolver
     # Data structures for factorization
     diagonal_block_matrices::Vector{Matrix}
     blockdiagonal_views::Vector{BlockDiagonalView}
-    # Indices, within `diagonal_block_matrices`, of matrices that we will
-    # block-diagonalize. (or should I just block-diagonalize all of these
-    # matrices?)
-    blockdiagonal_indices::Vector{Int}
-    #factors::Vector{<:LinearAlgebra.Factorization}
-    # Using Vector{Any} here because LinearAlgebra.factorize doesn't
-    # appear to be type-stable.
-    #
-    # TODO: Custom factorization object for block-diagonal matrices
-    # Or, I try to store the factors in-place. But this breaks down
-    # when my blocks are themselves block-triangular rather than
-    # block-diagonal.
-    # ^ Actually, I think this is fine. The factor of an LT matrix
-    # is itself. It only breaks down for *block* LT matrices.
-    #
-    # - If the matrix is diagonal, use built-in `factorize`
-    # - If the matrix is LT, use built-in `factorize`
-    # - If the matrix is block-diagonal, use built-in factorize on
-    #   diagonal blocks?
-    #
-    # What does this look like now? I would like to store either
-    # Matrix or BlockDiagonal for each diagonal block. So the above
-    # also needs to be `Vector{Any}`. Then I will simply call
-    # factorize.(diagonal_block_matrices).
+    # Whether to block-diagonalize the diagonal blocks of the block triangularization.
+    # This is set if user-provided blocks are given. (Block diagonalization is redundant
+    # otherwise.)
+    block_diagonalize::Bool
+    # Untyped because this will store LU or BlockDiagonalLU
     factors::Vector{Any}
 
     # The following is the minimal data I need for the backsolve
@@ -57,16 +38,14 @@ end
 function BlockTriangularSolver(
     csc::SparseArrays.SparseMatrixCSC;
     blocks::Union{Vector,Nothing} = nothing,
-    #max_blocksize::Int = 2,
 )
     @assert csc.m == csc.n
     dim = csc.m
     igraph = MathProgIncidence.IncidenceGraphInterface(csc)
 
-    # TODO: If `blocks` is provided, raise an error if the blocks don't partition
-    # `csc`'s rows and columns.
     if blocks === nothing
         blocks = MathProgIncidence.block_triangularize(igraph)
+        block_diagonalize = false
     else
         # If blocks were provided, we need to make sure they partition the row/column indices
         # I also should make sure they give an LT ordering. TODO.
@@ -77,45 +56,30 @@ function BlockTriangularSolver(
         @assert length(all_col_indices) == dim
         @assert issubset(all_row_indices, expected_indices)
         @assert issubset(all_col_indices, expected_indices)
+
+        csc_blocks = map(b -> csc[b...], blocks)
+        block_ccs = MathProgIncidence.connected_components.(csc_blocks)
+        # Block-diagonal blocksizes
+        bd_blocksizes = map(ccs -> map(cc -> length(cc), ccs[1]), block_ccs)
+        block_diagonalize = true
     end
+    nblock = length(blocks)
     blocksizes = map(b -> length(first(b)), blocks)
-
-    # Here, I must determine how to store each matrix. For now, the options
-    # are `Matrix` or `BlockDiagonal`. I need to use a custom type in order
-    # to use the correct `factorize` method.
-    # 
-    # The problem is that I don't actually have the matrices explicitly here.
-    # Extracting dense matrices is unreliable due to explicit zeros.
-    csc_blocks = map(b -> csc[b...], blocks)
-    # Once I have a sparse matrix for every block:
-    block_ccs = MathProgIncidence.connected_components.(csc_blocks)
-    # Block-diagonal blocksizes
-    bd_blocksizes = map(ccs -> map(cc -> length(cc), ccs[1]), block_ccs)
-    # What is my criteria for using BlockDiagonal?
-    #use_block_diagonal = filter(
-    #    # We use BlockDiagonal if the block-diagonal blocksize is no more than
-    #    # 10% of the block-triangular blocksize.
-    #    i -> maximum(bd_blocksizes[i]) / blocksizes[i] <= 0.1,
-    #    1:length(blocks),
-    #)
-    use_block_diagonal = collect(1:length(blocks))
-    # TODO: Should I also store the indices for which we *don't* use block diagonalization?
-
     diagonal_block_matrices = map(b -> zeros(b, b), blocksizes)
-    blockdiagonal_views = map(
-        i -> BlockDiagonalView(diagonal_block_matrices[i], block_ccs[i]...),
-        use_block_diagonal,
-    )
-    #diagonal_block_matrices[use_block_diagonal] .= BlockDiagonalView.(
-    #    diagonal_block_matrices[use_block_diagonal],
-    #    bd_blocksizes[use_block_diagonal],
-    #)
+    if block_diagonalize
+        # Here, we use BlockDiagonalView for all blocks. It may be beneficial to set
+        # some decomposability criterion at some point.
+        blockdiagonal_views = map(
+            i -> BlockDiagonalView(diagonal_block_matrices[i], block_ccs[i]...),
+            1:nblock,
+        )
+    else
+        blockdiagonal_views = []
+    end
 
-    # This will contain the outputs of LinearAlgebra.factorize, which is not
-    # type-stable.
+    # This will store LU or BlockDiagonalLU factors
     factors = Any[]
 
-    nblock = length(blocks)
     nnz = SparseArrays.nnz(csc)
     I, J, _ = SparseArrays.findnz(csc)
 
@@ -210,7 +174,7 @@ function BlockTriangularSolver(
         blocks,
         diagonal_block_matrices,
         blockdiagonal_views,
-        use_block_diagonal,
+        block_diagonalize,
         factors,
         off_diagonal_nz,
         off_diagonal_nzperm,
@@ -310,10 +274,11 @@ function factorize!(solver::BlockTriangularSolver)
     dt = time() - t0
     println("[$dt] Loop over nonzeros")
     # Note that this allocates new Factorization objects.
-    # Note that if I'm only block-diagonalizing a subset of the blocks, I need
-    # to call factorize in two rounds: Once for the raw matrices and once for
-    # the `BlockDiagonalView`s.
-    factors = LinearAlgebra.factorize.(solver.blockdiagonal_views)
+    if solver.block_diagonalize
+        factors = LinearAlgebra.factorize.(solver.blockdiagonal_views)
+    else
+        factors = LinearAlgebra.factorize.(solver.diagonal_block_matrices)
+    end
     solver.factors = factors
     dt = time() - t0
     println("[$dt] factorize")
