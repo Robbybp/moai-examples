@@ -91,30 +91,27 @@ function Base.show(io::IO, timer::SchurComplementTimer)
     println(io, "----------------------------------------")
 end
 
-# This seems not to work with a parameterized type?
-#@kwdef mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions where {INT}
 mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions
     ReducedSolver::Type
-    SchurSolver::Type
+    PivotSolver::Type
     pivot_indices::Vector{INT}
-    SchurComplementOptions(;
-        # TODO: Make pivot_indices required. We can't instantiate with an empty
-        # pivot matrix as our MA27 wrapper will error.
+    function SchurComplementOptions(;
+        # TODO: Non-third party default subsolver
         ReducedSolver = MadNLPHSL.Ma27Solver,
         PivotSolver = MadNLPHSL.Ma27Solver,
         pivot_indices = Int32[],
-    ) = new{eltype(pivot_indices)}(
-        ReducedSolver,
-        PivotSolver,
-        #Tuple{Int32,Int32}[],
-        pivot_indices,
-    )
+    ) 
+        return new{eltype(pivot_indices)}(
+            ReducedSolver,
+            PivotSolver,
+            pivot_indices,
+        )
+    end
 end
 
 struct SchurComplementSolver{T,INT} <: MadNLP.AbstractLinearSolver{T}
     csc::SparseArrays.SparseMatrixCSC{T,INT}
     reduced_solver::MadNLP.AbstractLinearSolver{T}
-    # "SchurSolver" is a bit ambiguous. TODO: find a better name.
     schur_solver::MadNLP.AbstractLinearSolver{T}
     # These are indices on which we pivot rows and columns.
     pivot_indices::Vector{INT}
@@ -158,16 +155,10 @@ end
 
 function SchurComplementSolver(
     csc::SparseArrays.SparseMatrixCSC{T,INT};
-    # TODO: Make this a SchurComplementOptions struct
-    #opt::Dict = Dict(),
     opt::SchurComplementOptions = SchurComplementOptions(),
     logger::MadNLP.MadNLPLogger = MadNLP.MadNLPLogger(),
-    # TODO: non-third-party default
-    #ReducedSolver::Type = get(opt, "reduced_solver", MadNLPHSL.Ma27Solver),
-    #SchurSolver::Type = get(opt, "schur_solver", MadNLPHSL.Ma27Solver),
-    #pivot_indices::Vector{INT} = get(opt, "pivot_indices", INT[]),
     ReducedSolver::Type = opt.ReducedSolver,
-    SchurSolver::Type = opt.SchurSolver,
+    PivotSolver::Type = opt.PivotSolver,
     pivot_indices::Vector{INT} = opt.pivot_indices,
 ) where {T,INT}
     FloatType = eltype(csc.nzval)
@@ -225,7 +216,7 @@ function SchurComplementSolver(
     reduced_matrix = SparseArrays.sparse(I, J, V)
 
     pivot_matrix = csc[P, P]
-    schur_solver = SchurSolver(pivot_matrix; logger)
+    schur_solver = PivotSolver(pivot_matrix; logger)
 
     # This is some experimental code for getting the reduced matrix's nonzeros
     # experimentally, from a factorization.

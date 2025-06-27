@@ -159,7 +159,7 @@ function find_adversarial_image(
         variables, constraints = get_vars_cons(formulation)
         pivot_indices = get_kkt_indices(m, variables, constraints)
         JuMP.set_optimizer_attribute(m, "pivot_indices", pivot_indices)
-        JuMP.set_optimizer_attribute(m, "SchurSolver", MadNLPHSL.Ma57Solver)
+        JuMP.set_optimizer_attribute(m, "PivotSolver", MadNLPHSL.Ma57Solver)
         JuMP.set_optimizer_attribute(m, "ReducedSolver", MadNLPHSL.Ma57Solver)
     end
     JuMP.optimize!(m)
@@ -186,7 +186,7 @@ end
 
 if abspath(PROGRAM_FILE) == @__FILE__
     # TODO: Most of this goes in CLI, which will be in a separate script
-    # - Why do I do CLI in a separage script?
+    # - Why do I do CLI in a separate script?
     # - So I can reuse it?
     nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
     image_index = 7

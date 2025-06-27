@@ -69,7 +69,7 @@ function profile_solver(
     println("Solver type:    $Solver")
     if Solver === SchurComplementSolver
         println("Reduced subsolver = $(opt.ReducedSolver)")
-        println("Pivot subsolver   = $(opt.SchurSolver)")
+        println("Pivot subsolver   = $(opt.PivotSolver)")
     end
     rhs = ones(kkt_matrix.m)
     t_init_start = time()

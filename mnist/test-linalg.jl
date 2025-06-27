@@ -137,7 +137,6 @@ function test_nlp_solve_tiny()
     nlp, _, _ = get_kkt(m)
     pivot_indices = get_kkt_indices(m, info.variables, info.constraints)
     pivot_indices = convert(Vector{Int32}, pivot_indices)
-    # Looks like we can do this with the
     optimizer = JuMP.optimizer_with_attributes(
         MadNLP.Optimizer,
         "tol" => 1e-6,
@@ -163,7 +162,7 @@ function test_nlp_solve_small_nn()
         #"linear_solver" => MadNLPHSL.Ma27Solver,
         "linear_solver" => SchurComplementSolver,
         "pivot_indices" => pivot_indices,
-        "SchurSolver" => MadNLPHSL.Ma57Solver,
+        "PivotSolver" => MadNLPHSL.Ma57Solver,
         "ReducedSolver" => MadNLPHSL.Ma57Solver,
     )
     JuMP.set_optimizer(m, optimizer)
