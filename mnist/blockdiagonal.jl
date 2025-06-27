@@ -1,4 +1,3 @@
-import BlockDiagonals
 import LinearAlgebra
 import MathProgIncidence
 import SparseArrays
@@ -27,44 +26,6 @@ struct BlockDiagonalView
     end
 end
 
-"""
-    BlockDiagonal(matrix)
-
-Convert a matrix that is already in block-diagonal order
-to a `BlockDiagonal` matrix.
-
-"""
-function BlockDiagonals.BlockDiagonal(matrix::Matrix, blocksizes::Vector{Int})
-    i = 1
-    blocks = []
-    for n in blocksizes
-        indices = i:(i + n - 1)
-        push!(blocks, matrix[indices, indices])
-        i += n
-    end
-    return BlockDiagonals.BlockDiagonal(blocks)
-    #csc = SparseArrays.sparse(matrix)
-    #igraph = MathProgIncidence.IncidenceGraphInterface(csc)
-    #rowcc, colcc = MathProgIncidence.connected_components(igraph)
-    ## rowcc and colcc partition the rows and columns, but I don't
-    ## guarantee anything about their order.
-    ## Conditions required for the matrix to be block-diagonal:
-    ## - Each CC contains contiguous row and col indices
-    ## Then I just sort the CCs and sort the indices within them,
-    ## and those are the diagonal blocks.
-    #@assert length(rowcc) == length(colcc)
-    #ncc = length(rowcc)
-    #sort!.(rowcc)
-    #sort!.(colcc)
-    #ccs_contiguous = all(Set.(rowcc) == Set(first(rowcc):last(rowcc)))
-    #rcc_order = sort(1:ncc, by = cc -> first(cc))
-    #ccc_order = sort(1:ncc, by = cc -> first(cc))
-    #rowsizes = length.(concc)
-    #colsizes = length.(varcc)
-    #if all(Set.(rowcc) == )
-    #end
-end
-
 # I might as well add this method to MathProgIncidence
 function connected_components(matrix::Matrix)
     csc = SparseArrays.sparse(matrix)
@@ -83,25 +44,6 @@ struct BlockDiagonalLU
     row_partition::Vector{Vector{Int}}
     col_partition::Vector{Vector{Int}}
     factors::Vector{LinearAlgebra.LU}
-    #index_partition::Vector{UnitRange}
-    #factors::Vector{LinearAlgebra.LU}
-    #function BlockDiagonalLU(bm::BlockDiagonals.BlockDiagonal)
-    #    index_partition = []
-    #    blocksizes = BlockDiagonals.blocksizes(bm)
-    #    start = 1
-    #    for (nrow, ncol) in blocksizes
-    #        @assert nrow == ncol
-    #        push!(index_partition, start:(start + nrow - 1))
-    #        start += nrow
-    #    end
-    #    # TODO: use `lu!`? This modifies bm in-place, which should be fine
-    #    factors = LinearAlgebra.lu(BlockDiagonals.blocks(bm))
-    #    return BlockDiagonalLU(factors)
-    #end
-end
-
-function LinearAlgebra.lu(bm::BlockDiagonals.BlockDiagonal)
-    return BlockDiagonalLU(bm)
 end
 
 function LinearAlgebra.lu(bd::BlockDiagonalView)
@@ -111,10 +53,6 @@ function LinearAlgebra.lu(bd::BlockDiagonalView)
     end
     factors = LinearAlgebra.lu.(bd.blocks)
     return BlockDiagonalLU(bd.row_partition, bd.col_partition, factors)
-end
-
-function LinearAlgebra.factorize(bm::BlockDiagonals.BlockDiagonal)
-    return BlockDiagonalLU(bm)
 end
 
 function LinearAlgebra.factorize(bd::BlockDiagonalView)
