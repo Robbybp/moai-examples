@@ -21,55 +21,45 @@ function _test_matrix(
     nrhs = 10,
     baseline_solver = "umfpack",
     skiptest = false,
+    btsolver = nothing,
 )
     dim = csc.m
     rowscaling = LinearAlgebra.diagm(convert(Vector{Float64}, 1:dim))
     rhs = rowscaling * ones(dim, nrhs)
 
-    if true
-        _t = time()
+    _t = time()
+    if btsolver === nothing
         btsolver = BlockTriangularSolver(csc; blocks)
-        t_init = time() - _t
-        _t = time()
-        factorize!(btsolver)
-        t_fact = time() - _t
-        sol = copy(rhs)
-        _t = time()
-        solve!(btsolver, sol)
-        t_solve = time() - _t
-    else
-        _t = time()
-        solver = MadNLPHSL.Ma57Solver(SparseArrays.tril(csc))
-        t_init = time() - _t
-        _t = time()
-        MadNLP.factorize!(solver)
-        t_fact = time() - _t
-        sol = copy(rhs)
-        _t = time()
-        MadNLP.solve!(solver, sol)
-        t_solve = time() - _t
     end
+    t_init = time() - _t
+    _t = time()
+    factorize!(btsolver)
+    t_fact = time() - _t
+    sol = copy(rhs)
+    _t = time()
+    solve!(btsolver, sol)
+    t_solve = time() - _t
 
-    if baseline_solver == "umfpack"
-        baseline = csc \ rhs
-    elseif baseline_solver == "ma57"
-        solver = MadNLPHSL.Ma57Solver(SparseArrays.tril(csc))
-        MadNLP.factorize!(solver)
-        baseline = copy(rhs)
-        MadNLP.solve!(solver, baseline)
-    else
-        error("baseline_solver argument must be \"umfpack\" or \"ma57\"")
-    end
     if !skiptest
+        if baseline_solver == "umfpack"
+            baseline = csc \ rhs
+        elseif baseline_solver == "ma57"
+            solver = MadNLPHSL.Ma57Solver(SparseArrays.tril(csc))
+            MadNLP.factorize!(solver)
+            baseline = copy(rhs)
+            MadNLP.solve!(solver, baseline)
+        else
+            error("baseline_solver argument must be \"umfpack\" or \"ma57\"")
+        end
         @test all(isapprox.(sol, baseline; atol))
-    end
-    if !(all(isapprox.(sol, baseline; atol)))
-        diff = abs.(sol .- baseline)
-        ndiff = count(diff[:, 1] .> atol)
-        maxdiff = maximum(diff)
-        println("Solution does not match baseline")
-        println("Max error: $maxdiff")
-        println("N. errors: $ndiff / $dim")
+        if !(all(isapprox.(sol, baseline; atol)))
+            diff = abs.(sol .- baseline)
+            ndiff = count(diff[:, 1] .> atol)
+            maxdiff = maximum(diff)
+            println("Solution does not match baseline")
+            println("Max error: $maxdiff")
+            println("N. errors: $ndiff / $dim")
+        end
     end
     return (;
         time = (;
@@ -77,6 +67,7 @@ function _test_matrix(
             factorize = t_fact,
             solve = t_solve,
         ),
+        btsolver,
     )
 end
 
@@ -166,7 +157,14 @@ function test_nn_jacobian()
     x = [something(JuMP.start_value(var), 1.0) for var in vars]
     matrix = NLPModels.jac(nlp, x)
     display(matrix)
-    _test_matrix(matrix; blocks)
+    info = _test_matrix(matrix; blocks)
+
+    # Test a re-solve with new values
+    x2 = [2.0 for var in vars]
+    jac2 = NLPModels.jac(nlp, x2)
+    matrix.nzval .= jac2.nzval
+    btsolver = info.btsolver
+    _test_matrix(matrix; blocks, btsolver)
     return
 end
 
@@ -298,16 +296,6 @@ function test_mnist_nn_kkt(;
         varindices = [index_remap[i] for i in var_indices_by_layer[l]]
         push!(blocks, (varindices, conindices))
     end
-    #aggregated_blocks = []
-    #for (i, (rows, cols)) in enumerate(blocks)
-    #    if Bool(i % 2)
-    #        push!(aggregated_blocks, (rows, cols))
-    #    else
-    #        prevrows, prevcols = last(aggregated_blocks)
-    #        append!(prevrows, rows)
-    #        append!(prevcols, cols)
-    #    end
-    #end
 
     res = _test_matrix(C_full; blocks, nrhs, atol = 1e-5, skiptest = true)
     println("Timing breakdown")
@@ -319,14 +307,14 @@ function test_mnist_nn_kkt(;
 end
 
 @testset begin
-    #test_3x3_lt()
-    #test_3x3_lt_unsym_perm()
-    #test_4x4_blt()
-    #test_5x5_large_block()
-    #test_nn_jacobian()
-    #test_nn_kkt()
-    #test_nn_kkt_symmetric_inverse()
+    test_3x3_lt()
+    test_3x3_lt_unsym_perm()
+    test_4x4_blt()
+    test_5x5_large_block()
+    test_nn_jacobian()
+    test_nn_kkt()
+    test_nn_kkt_symmetric_inverse()
     #nnfname = "mnist-relu1024nodes4layers.pt"
     nnfname = "mnist-relu2048nodes4layers.pt"
-    test_mnist_nn_kkt(; nrhs = 1000, nnfname, skip_auto_btf = false)
+    test_mnist_nn_kkt(; nrhs = 1000, nnfname, skip_auto_btf = true)
 end

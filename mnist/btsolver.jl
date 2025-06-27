@@ -296,8 +296,12 @@ function factorize!(solver::BlockTriangularSolver)
     # For entries in the same block, add the nonzero value to the matrix in the correct
     # position.
     #
-    # FIXME: There is a bug here regarding repeated solves. I'm assuming that these
-    # matrices are initialized to zeros, which is clearly not the case as written.
+    # Initialize diagonal block matrices to zero. Here I only access the coordinates that
+    # are defined in the sparse representation, assuming the others are already zero.
+    for k in block_entries
+        matrix = block_matrices[row_block_map[I[k]][1]]
+        matrix[row_block_map[I[k]][2], col_block_map[J[k]][2]] = 0.0
+    end
     for k in block_entries
         matrix = block_matrices[row_block_map[I[k]][1]]
         matrix[row_block_map[I[k]][2], col_block_map[J[k]][2]] += V[k]
