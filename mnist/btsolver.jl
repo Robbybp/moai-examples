@@ -2,8 +2,6 @@ import SparseArrays
 import LinearAlgebra
 import MathProgIncidence
 import MadNLP
-# I'm currently not planning to use BlockDiagonals
-#import BlockDiagonals
 
 include("blockdiagonal.jl")
 
