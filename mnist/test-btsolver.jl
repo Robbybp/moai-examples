@@ -29,7 +29,8 @@ function _test_matrix(
 
     _t = time()
     if btsolver === nothing
-        btsolver = BlockTriangularSolver(csc; blocks)
+        opt = BlockTriangularOptions(; blocks)
+        btsolver = BlockTriangularSolver(csc; opt)
     end
     t_init = time() - _t
     _t = time()

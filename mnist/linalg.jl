@@ -95,20 +95,21 @@ mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions
     ReducedSolver::Type
     PivotSolver::Type
     pivot_indices::Vector{INT}
-    # TODO: Vector{Tuple{Vector{INT},Vector{INT}}}. I.e., use same int type.
-    # TODO: Move pivot_index_partition to BTSolverOptions or something.
-    pivot_index_partition::Union{Nothing,Vector}
+    pivot_solver_opt::Union{Nothing,MadNLP.AbstractOptions}
     function SchurComplementOptions(;
         # TODO: Non-third party default subsolver
         ReducedSolver = MadNLPHSL.Ma27Solver,
         PivotSolver = MadNLPHSL.Ma27Solver,
         pivot_indices = Int32[],
+        # NOTE: If pivot_solver_opt is not specified, we will use
+        # default_options(PivotSolver) in the SchurComplementSolver constructor.
+        pivot_solver_opt = nothing,
     ) 
         return new{eltype(pivot_indices)}(
             ReducedSolver,
             PivotSolver,
             pivot_indices,
-            nothing,
+            pivot_solver_opt,
         )
     end
 end
@@ -161,10 +162,10 @@ function SchurComplementSolver(
     csc::SparseArrays.SparseMatrixCSC{T,INT};
     opt::SchurComplementOptions = SchurComplementOptions(),
     logger::MadNLP.MadNLPLogger = MadNLP.MadNLPLogger(),
+    # TODO: Remove all these unnecessary options
     ReducedSolver::Type = opt.ReducedSolver,
     PivotSolver::Type = opt.PivotSolver,
     pivot_indices::Vector{INT} = opt.pivot_indices,
-    pivot_index_partition = opt.pivot_index_partition,
 ) where {T,INT}
     FloatType = eltype(csc.nzval)
     IntType = eltype(csc.rowval)
@@ -221,13 +222,10 @@ function SchurComplementSolver(
     reduced_matrix = SparseArrays.sparse(I, J, V)
 
     pivot_matrix = csc[P, P]
-    # TODO: Use an option struct for PivotSolver and avoid branching here.
-    if pivot_index_partition === nothing
-        pivot_solver = PivotSolver(pivot_matrix; logger)
-    else
-        # TODO: What processing is necessary before using pivot_index_partition?
-        pivot_solver = PivotSolver(pivot_matrix; blocks = pivot_index_partition, logger)
-    end
+    # NOTE: We defer evaluation of default_options until this point because of how
+    # MadNLP handles options (it assumes no dependency among options).
+    pivot_solver_opt = something(opt.pivot_solver_opt, MadNLP.default_options(PivotSolver))
+    pivot_solver = PivotSolver(pivot_matrix; opt = pivot_solver_opt, logger)
 
     # This is some experimental code for getting the reduced matrix's nonzeros
     # experimentally, from a factorization.

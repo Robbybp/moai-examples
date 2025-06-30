@@ -5,6 +5,12 @@ import MadNLP
 
 include("blockdiagonal.jl")
 
+mutable struct BlockTriangularOptions <: MadNLP.AbstractOptions
+    blocks::Union{Nothing,Vector{Tuple{Vector{Int},Vector{Int}}}}
+    symmetric::Bool
+    BlockTriangularOptions(; blocks = nothing, symmetric = true) = new(blocks, symmetric)
+end
+
 mutable struct BlockTriangularSolver <: MadNLP.AbstractLinearSolver{Float64}
     csc::SparseArrays.SparseMatrixCSC
     # TODO: `full_matrix` field. This stores the full matrix (rather than just
@@ -40,13 +46,18 @@ mutable struct BlockTriangularSolver <: MadNLP.AbstractLinearSolver{Float64}
     off_diagonal_matrices::Vector{SparseArrays.SparseMatrixCSC}
 end
 
+MadNLP.input_type(::Type{BlockTriangularSolver}) = :csc
+MadNLP.default_options(::Type{BlockTriangularSolver}) = BlockTriangularOptions()
+MadNLP.is_inertia(::BlockTriangularSolver) = false
+
 # TODO: symmetric = true construction flag.
 # Default should be `true` so we don't need a special option in SchurComplement
 function BlockTriangularSolver(
     csc::SparseArrays.SparseMatrixCSC;
-    blocks::Union{Vector,Nothing} = nothing,
+    opt::BlockTriangularOptions = BlockTriangularOptions(),
     logger::MadNLP.MadNLPLogger = MadNLP.MadNLPLogger(),
 )
+    blocks = opt.blocks
     @assert csc.m == csc.n
     dim = csc.m
     igraph = MathProgIncidence.IncidenceGraphInterface(csc)
