@@ -8,7 +8,7 @@ include("blockdiagonal.jl")
 mutable struct BlockTriangularOptions <: MadNLP.AbstractOptions
     blocks::Union{Nothing,Vector{Tuple{Vector{Int},Vector{Int}}}}
     symmetric::Bool
-    BlockTriangularOptions(; blocks = nothing, symmetric = false) = new(blocks, symmetric)
+    BlockTriangularOptions(; blocks = nothing, symmetric = true) = new(blocks, symmetric)
 end
 
 mutable struct BlockTriangularSolver <: MadNLP.AbstractLinearSolver{Float64}
@@ -66,6 +66,11 @@ function BlockTriangularSolver(
         full_matrix = csc
         tril_to_full_view = view(full_matrix.nzval, 1:SparseArrays.nnz(full_matrix))
     end
+    # TODO: Meaningful names
+    original_csc = csc
+    csc = full_matrix
+    display(typeof(original_csc))
+    display(typeof(csc))
 
     if blocks === nothing
         blocks = MathProgIncidence.block_triangularize(igraph)
@@ -82,6 +87,13 @@ function BlockTriangularSolver(
         @assert issubset(all_col_indices, expected_indices)
 
         csc_blocks = map(b -> csc[b...], blocks)
+        block_matchings = MathProgIncidence.maximum_matching.(csc_blocks)
+        if !all(length.(block_matchings) .== map(b -> length(first(b)), blocks))
+            error(
+                "At least one diagonal block does not have a perfect matching."
+                * "This block is structurally singular."
+            )
+        end
         block_ccs = MathProgIncidence.connected_components.(csc_blocks)
         # Block-diagonal blocksizes
         bd_blocksizes = map(ccs -> map(cc -> length(cc), ccs[1]), block_ccs)
@@ -93,8 +105,14 @@ function BlockTriangularSolver(
     if block_diagonalize
         # Here, we use BlockDiagonalView for all blocks. It may be beneficial to set
         # some decomposability criterion at some point.
+        blockdiagonal_views = []
         blockdiagonal_views = map(
-            i -> BlockDiagonalView(diagonal_block_matrices[i], block_ccs[i]...),
+            i -> BlockDiagonalView(
+                diagonal_block_matrices[i],
+                convert(Vector{Vector{Int64}}, block_ccs[i][1]),
+                convert(Vector{Vector{Int64}}, block_ccs[i][2]),
+                #block_ccs[i]...,
+            ),
             1:nblock,
         )
     else
@@ -194,8 +212,8 @@ function BlockTriangularSolver(
     end
 
     return BlockTriangularSolver(
+        original_csc,
         csc,
-        full_matrix,
         tril_to_full_view,
         blocks,
         diagonal_block_matrices,

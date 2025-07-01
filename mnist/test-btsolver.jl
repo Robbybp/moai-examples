@@ -22,6 +22,7 @@ function _test_matrix(
     baseline_solver = "umfpack",
     skiptest = false,
     btsolver = nothing,
+    symmetric = true,
 )
     dim = csc.m
     rowscaling = LinearAlgebra.diagm(convert(Vector{Float64}, 1:dim))
@@ -29,7 +30,7 @@ function _test_matrix(
 
     _t = time()
     if btsolver === nothing
-        opt = BlockTriangularOptions(; blocks)
+        opt = BlockTriangularOptions(; blocks, symmetric)
         btsolver = BlockTriangularSolver(csc; opt)
     end
     t_init = time() - _t
@@ -79,9 +80,9 @@ function test_3x3_lt()
         0.0 2.0 1.0;
     ]
     matrix = SparseArrays.sparse(matrix)
-    _test_matrix(matrix)
+    _test_matrix(matrix; symmetric = false)
     blocks = [([1,2], [1,2]), ([3], [3])]
-    _test_matrix(matrix; blocks)
+    _test_matrix(matrix; blocks, symmetric = false)
     return
 end
 
@@ -98,9 +99,9 @@ function test_3x3_lt_unsym_perm()
         2.0 1.0 0.0;
     ]
     matrix = SparseArrays.sparse(matrix)
-    _test_matrix(matrix)
+    _test_matrix(matrix; symmetric = false)
     blocks = [([1], [3]), ([3,2], [2,1])]
-    _test_matrix(matrix; blocks)
+    _test_matrix(matrix; blocks, symmetric = false)
     return
 end
 
@@ -112,7 +113,7 @@ function test_4x4_blt()
         2.0 0.0 0.0 2.0;
     ]
     matrix = SparseArrays.sparse(matrix)
-    _test_matrix(matrix)
+    _test_matrix(matrix; symmetric = false)
     return
 end
 
@@ -126,7 +127,7 @@ function test_5x5_large_block()
         0.0 4.0 0.0 0.0 1.0;
     ]
     matrix = SparseArrays.sparse(matrix)
-    _test_matrix(matrix)
+    _test_matrix(matrix; symmetric = false)
     return
 end
 
@@ -158,14 +159,14 @@ function test_nn_jacobian()
     x = [something(JuMP.start_value(var), 1.0) for var in vars]
     matrix = NLPModels.jac(nlp, x)
     display(matrix)
-    info = _test_matrix(matrix; blocks)
+    info = _test_matrix(matrix; blocks, symmetric = false)
 
     # Test a re-solve with new values
     x2 = [2.0 for var in vars]
     jac2 = NLPModels.jac(nlp, x2)
     matrix.nzval .= jac2.nzval
     btsolver = info.btsolver
-    _test_matrix(matrix; blocks, btsolver)
+    _test_matrix(matrix; blocks, btsolver, symmetric = false)
     return
 end
 
