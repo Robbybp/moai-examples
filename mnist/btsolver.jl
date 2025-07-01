@@ -12,7 +12,10 @@ mutable struct BlockTriangularOptions <: MadNLP.AbstractOptions
 end
 
 mutable struct BlockTriangularSolver <: MadNLP.AbstractLinearSolver{Float64}
-    original_matrix::SparseArrays.SparseMatrixCSC
+    # `csc` is the user's original matrix. We call this `csc` for compatibility with
+    # other MadNLP solvers. If this sparse matrix could somehow be a view into another
+    # sparse matrix, we wouldn't need to rely on compatible field names.
+    csc::SparseArrays.SparseMatrixCSC
     full_matrix::SparseArrays.SparseMatrixCSC
     tril_to_full_view::SubArray
     blocks::Vector{Tuple{Vector{Int},Vector{Int}}}
@@ -329,7 +332,7 @@ end
 
 function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Vector)
     rhs = reshape(rhs, length(rhs), 1)
-    return solve!(solver, rhs)
+    return MadNLP.solve!(solver, rhs)
 end
 
 function solve!(lu::Matrix{Float64}, rhs)
