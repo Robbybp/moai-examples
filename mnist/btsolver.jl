@@ -12,7 +12,7 @@ mutable struct BlockTriangularOptions <: MadNLP.AbstractOptions
 end
 
 mutable struct BlockTriangularSolver <: MadNLP.AbstractLinearSolver{Float64}
-    csc::SparseArrays.SparseMatrixCSC
+    original_matrix::SparseArrays.SparseMatrixCSC
     full_matrix::SparseArrays.SparseMatrixCSC
     tril_to_full_view::SubArray
     blocks::Vector{Tuple{Vector{Int},Vector{Int}}}
@@ -57,6 +57,7 @@ function BlockTriangularSolver(
     dim = csc.m
     igraph = MathProgIncidence.IncidenceGraphInterface(csc)
 
+    original_matrix = csc
     if opt.symmetric
         full_matrix, tril_to_full_view = MadNLP.get_tril_to_full(csc)
     else
@@ -66,11 +67,6 @@ function BlockTriangularSolver(
         full_matrix = csc
         tril_to_full_view = view(full_matrix.nzval, 1:SparseArrays.nnz(full_matrix))
     end
-    # TODO: Meaningful names
-    original_csc = csc
-    csc = full_matrix
-    display(typeof(original_csc))
-    display(typeof(csc))
 
     if blocks === nothing
         blocks = MathProgIncidence.block_triangularize(igraph)
@@ -86,7 +82,7 @@ function BlockTriangularSolver(
         @assert issubset(all_row_indices, expected_indices)
         @assert issubset(all_col_indices, expected_indices)
 
-        csc_blocks = map(b -> csc[b...], blocks)
+        csc_blocks = map(b -> original_matrix[b...], blocks)
         block_matchings = MathProgIncidence.maximum_matching.(csc_blocks)
         if !all(length.(block_matchings) .== map(b -> length(first(b)), blocks))
             error(
@@ -105,7 +101,6 @@ function BlockTriangularSolver(
     if block_diagonalize
         # Here, we use BlockDiagonalView for all blocks. It may be beneficial to set
         # some decomposability criterion at some point.
-        blockdiagonal_views = []
         blockdiagonal_views = map(
             i -> BlockDiagonalView(
                 diagonal_block_matrices[i],
@@ -122,13 +117,13 @@ function BlockTriangularSolver(
     # This will store LU or BlockDiagonalLU factors
     factors = Any[]
 
-    nnz = SparseArrays.nnz(csc)
-    I, J, _ = SparseArrays.findnz(csc)
+    nnz = SparseArrays.nnz(full_matrix)
+    I, J, _ = SparseArrays.findnz(full_matrix)
 
     # TODO: row/col_block_map and row/col_offset_map should probably
     # be separate arrays
-    row_block_map = [(0,0) for _ in 1:csc.m]
-    col_block_map = [(0,0) for _ in 1:csc.n]
+    row_block_map = [(0,0) for _ in 1:full_matrix.m]
+    col_block_map = [(0,0) for _ in 1:full_matrix.n]
     for (i, b) in enumerate(blocks)
         for (j, (r, c)) in enumerate(zip(b...))
             row_block_map[r] = (i, j)
@@ -212,8 +207,8 @@ function BlockTriangularSolver(
     end
 
     return BlockTriangularSolver(
-        original_csc,
-        csc,
+        original_matrix,
+        full_matrix,
         tril_to_full_view,
         blocks,
         diagonal_block_matrices,
@@ -278,7 +273,6 @@ function MadNLP.factorize!(solver::BlockTriangularSolver)
     # The user's matrix, `solver.csc`, has been updated. I need to update the full matrix.
     # If the input matrix is not symmetric, this is redundant.
     solver.full_matrix.nzval .= solver.tril_to_full_view
-    # TODO: use a more descriptive name here
     csc = solver.full_matrix
     blocks = solver.blocks
     block_matrices = solver.diagonal_block_matrices
@@ -372,27 +366,21 @@ end
 
 function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Matrix)
     _t = time()
-    # To keep something working while changing minimal lines of code, I'll just
-    # set `csc` to the full matrix. All the cached data structures need to refer
-    # to this full matrix.
-    # TODO: Use a more descriptive name
     csc = solver.full_matrix
     blocks = solver.blocks
-    #diagonal_block_matrices = solver.diagonal_block_matrices
     factors = solver.factors
     nblock = length(blocks)
     nnz = SparseArrays.nnz(csc)
 
-    row_perm = [i for (rb, cb) in blocks for i in rb]
-    col_perm = [j for (rb, cb) in blocks for j in cb]
-    inv_col_perm = zeros(Int64, csc.n)
-    for (i, j) in enumerate(col_perm)
-        inv_col_perm[j] = i
-    end
+    # These are no longer necessary to update RHS in-place. See below.
+    #row_perm = [i for (rb, cb) in blocks for i in rb]
+    #col_perm = [j for (rb, cb) in blocks for j in cb]
+    #inv_col_perm = zeros(Int64, csc.n)
+    #for (i, j) in enumerate(col_perm)
+    #    inv_col_perm[j] = i
+    #end
 
     # We partition the RHS by row blocks of the original matrix
-    #rhs_blocks = map(b -> view(rhs, b[1], :), blocks)
-    # `rhs_blocks` now contains a copy of rhs
     rhs_blocks = map(b -> rhs[b[1], :], blocks)
 
     off_diagonal_nz = solver.off_diagonal_nz
@@ -418,10 +406,9 @@ function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Matrix)
     dt = time() - _t
     println("[$dt] Update nzval")
 
-    # What happens if I use dense off-diagonal blocks?
     #off_diagonal_matrices = map(m -> Matrix(m), off_diagonal_matrices)
     off_diagonal_matrices = map(
-        # Some quick heuristic to switch between sparse and dense?
+        # Some quick heuristic to switch between sparse and dense
         matrix -> SparseArrays.nnz(matrix) >= 0.01*matrix.m*matrix.n ? Matrix(matrix) : matrix,
         off_diagonal_matrices,
     )
@@ -431,14 +418,12 @@ function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Matrix)
     # Backsolve using an adjacency list
     t_solve = 0.0
     t_loop = 0.0
-    t_multiply = 0.0
-    t_subtract = 0.0
+    t_multiply_and_subtract = 0.0
     _t = time()
     println()
     println("Entering backsolve loop for $nblock blocks and $nedges edges")
     for b in 1:nblock
         local _t = time()
-        #solve!(diagonal_block_matrices[b], rhs_blocks[b])
         # What ever struct I return from `factorize`, it should support
         # ldiv!. This way I can return Julia built-in factors as well
         # if they're convenient and performant.
@@ -451,29 +436,24 @@ function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Matrix)
         for e in edgestart_by_block[b]:edgeend_by_block[b]
             _, j = dag[e]
             local _t = time()
-            #rhs_blocks[j] .-= off_diagonal_matrices[e] * rhs_blocks[b]
-            temp = off_diagonal_matrices[e] * rhs_blocks[b]
-            dt = time() - _t
-            t_multiply += dt
-            rhs_blocks[j] .-= temp
-            t_subtract += time() - _t - dt
-            #println("Subtracting the product for edge $e, between nodes $b and $j, took $(@sprintf("%1.1f", dt)) s")
-            #display(SparseArrays.sparse(off_diagonal_matrices[e]))
+            rhs_blocks[j] .-= off_diagonal_matrices[e] * rhs_blocks[b]
+            t_multiply_and_subtract += time() - _t
         end
     end
     t_loop = time() - _t
     println("---------------")
     println("Backsolve loop:")
-    println("Solve:    $t_solve")
-    println("Mutiply:  $t_multiply")
-    println("Subtract: $t_subtract")
-    println("Other:    $(t_loop-t_solve-t_multiply-t_subtract)")
-    println("Total:    $t_loop")
+    println("Solve:                 $t_solve")
+    println("Mutiply and subtract:  $t_multiply_and_subtract")
+    println("Other:                 $(t_loop-t_solve-t_multiply_and_subtract)")
+    println("Total:                 $t_loop")
     println("---------------")
     dt = time() - _t
     println("[$dt] Backsolve")
     for (i, rhs_i) in enumerate(rhs_blocks)
-        rhs[blocks[i][1], :] .= rhs_i
+        #rhs[blocks[i][1], :] .= rhs_i
+        # Is this the same as applying the inverse column permutation?
+        rhs[blocks[i][2], :] .= rhs_i
     end
     dt = time() - _t
     println("[$dt] Update rhs")
@@ -481,8 +461,10 @@ function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Matrix)
     # row permutation to our solution. We must undo this row permutation
     # *and* apply the column permutation to our solution in order to
     # recover the solution to the original problem.
-    rhs .= rhs[row_perm, :][inv_col_perm, :]
-    dt = time() - _t
-    println("[$dt] Reorder solution")
+    # ^ We now do this above. The code is still here in case I messed something
+    # up when applying permutations in my head.
+    #rhs .= rhs[row_perm, :][inv_col_perm, :]
+    #dt = time() - _t
+    #println("[$dt] Reorder solution")
     return rhs
 end
