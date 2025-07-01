@@ -8,16 +8,13 @@ include("blockdiagonal.jl")
 mutable struct BlockTriangularOptions <: MadNLP.AbstractOptions
     blocks::Union{Nothing,Vector{Tuple{Vector{Int},Vector{Int}}}}
     symmetric::Bool
-    BlockTriangularOptions(; blocks = nothing, symmetric = true) = new(blocks, symmetric)
+    BlockTriangularOptions(; blocks = nothing, symmetric = false) = new(blocks, symmetric)
 end
 
 mutable struct BlockTriangularSolver <: MadNLP.AbstractLinearSolver{Float64}
     csc::SparseArrays.SparseMatrixCSC
-    # TODO: `full_matrix` field. This stores the full matrix (rather than just
-    # the lower triangle). I probably also need a `symmetric` flag to detect
-    # whether we need to update the upper triangle separately when updating
-    # the full matrix. Then I update the factorize/solve methods to just use
-    # `full_matrix` rather than `csc`.
+    full_matrix::SparseArrays.SparseMatrixCSC
+    tril_to_full_view::SubArray
     blocks::Vector{Tuple{Vector{Int},Vector{Int}}}
 
     # Data structures for factorization
@@ -50,8 +47,6 @@ MadNLP.input_type(::Type{BlockTriangularSolver}) = :csc
 MadNLP.default_options(::Type{BlockTriangularSolver}) = BlockTriangularOptions()
 MadNLP.is_inertia(::BlockTriangularSolver) = false
 
-# TODO: symmetric = true construction flag.
-# Default should be `true` so we don't need a special option in SchurComplement
 function BlockTriangularSolver(
     csc::SparseArrays.SparseMatrixCSC;
     opt::BlockTriangularOptions = BlockTriangularOptions(),
@@ -61,6 +56,16 @@ function BlockTriangularSolver(
     @assert csc.m == csc.n
     dim = csc.m
     igraph = MathProgIncidence.IncidenceGraphInterface(csc)
+
+    if opt.symmetric
+        full_matrix, tril_to_full_view = MadNLP.get_tril_to_full(csc)
+    else
+        # Define a dummy "full matrix" and tril-to-full view so we don't
+        # have to branch later. This may be more confusing than it's worth.
+        # The alternative is to just branch on the symmetric flag later.
+        full_matrix = csc
+        tril_to_full_view = view(full_matrix.nzval, 1:SparseArrays.nnz(full_matrix))
+    end
 
     if blocks === nothing
         blocks = MathProgIncidence.block_triangularize(igraph)
@@ -190,6 +195,8 @@ function BlockTriangularSolver(
 
     return BlockTriangularSolver(
         csc,
+        full_matrix,
+        tril_to_full_view,
         blocks,
         diagonal_block_matrices,
         blockdiagonal_views,
@@ -250,7 +257,11 @@ end
 
 function MadNLP.factorize!(solver::BlockTriangularSolver)
     t0 = time()
-    csc = solver.csc
+    # The user's matrix, `solver.csc`, has been updated. I need to update the full matrix.
+    # If the input matrix is not symmetric, this is redundant.
+    solver.full_matrix.nzval .= solver.tril_to_full_view
+    # TODO: use a more descriptive name here
+    csc = solver.full_matrix
     blocks = solver.blocks
     block_matrices = solver.diagonal_block_matrices
 
@@ -343,7 +354,11 @@ end
 
 function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Matrix)
     _t = time()
-    csc = solver.csc
+    # To keep something working while changing minimal lines of code, I'll just
+    # set `csc` to the full matrix. All the cached data structures need to refer
+    # to this full matrix.
+    # TODO: Use a more descriptive name
+    csc = solver.full_matrix
     blocks = solver.blocks
     #diagonal_block_matrices = solver.diagonal_block_matrices
     factors = solver.factors
