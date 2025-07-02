@@ -49,6 +49,8 @@ end
 MadNLP.input_type(::Type{BlockTriangularSolver}) = :csc
 MadNLP.default_options(::Type{BlockTriangularSolver}) = BlockTriangularOptions()
 MadNLP.is_inertia(::BlockTriangularSolver) = false
+# TODO: Print some information about sub-solver?
+MadNLP.introduce(::BlockTriangularSolver) = "BlockTriangularSolver"
 
 function BlockTriangularSolver(
     csc::SparseArrays.SparseMatrixCSC;
@@ -58,7 +60,6 @@ function BlockTriangularSolver(
     blocks = opt.blocks
     @assert csc.m == csc.n
     dim = csc.m
-    igraph = MathProgIncidence.IncidenceGraphInterface(csc)
 
     original_matrix = csc
     if opt.symmetric
@@ -72,6 +73,8 @@ function BlockTriangularSolver(
     end
 
     if blocks === nothing
+        # TODO: block_triangularize method that accepts CSC
+        igraph = MathProgIncidence.IncidenceGraphInterface(full_matrix)
         blocks = MathProgIncidence.block_triangularize(igraph)
         block_diagonalize = false
     else
@@ -407,7 +410,7 @@ function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Matrix)
         off_diagonal_matrices[e].nzval .= V_by_edge[e]
     end
     dt = time() - _t
-    println("[$dt] Update nzval")
+    #println("[$dt] Update nzval")
 
     #off_diagonal_matrices = map(m -> Matrix(m), off_diagonal_matrices)
     off_diagonal_matrices = map(
@@ -416,15 +419,17 @@ function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Matrix)
         off_diagonal_matrices,
     )
     dt = time() - _t
-    println("[$dt] Construct dense matrices")
+    #println("[$dt] Construct dense matrices")
 
     # Backsolve using an adjacency list
     t_solve = 0.0
     t_loop = 0.0
     t_multiply_and_subtract = 0.0
     _t = time()
-    println()
-    println("Entering backsolve loop for $nblock blocks and $nedges edges")
+    #println()
+    #println("Entering backsolve loop for $nblock blocks and $nedges edges")
+    println("Before backsolve loop")
+    display.(rhs_blocks)
     for b in 1:nblock
         local _t = time()
         # What ever struct I return from `factorize`, it should support
@@ -443,23 +448,25 @@ function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Matrix)
             t_multiply_and_subtract += time() - _t
         end
     end
+    println("After backsolve loop")
+    display.(rhs_blocks)
     t_loop = time() - _t
-    println("---------------")
-    println("Backsolve loop:")
-    println("Solve:                 $t_solve")
-    println("Mutiply and subtract:  $t_multiply_and_subtract")
-    println("Other:                 $(t_loop-t_solve-t_multiply_and_subtract)")
-    println("Total:                 $t_loop")
-    println("---------------")
+    #println("---------------")
+    #println("Backsolve loop:")
+    #println("Solve:                 $t_solve")
+    #println("Mutiply and subtract:  $t_multiply_and_subtract")
+    #println("Other:                 $(t_loop-t_solve-t_multiply_and_subtract)")
+    #println("Total:                 $t_loop")
+    #println("---------------")
     dt = time() - _t
-    println("[$dt] Backsolve")
+    #println("[$dt] Backsolve")
     for (i, rhs_i) in enumerate(rhs_blocks)
         #rhs[blocks[i][1], :] .= rhs_i
         # Is this the same as applying the inverse column permutation?
         rhs[blocks[i][2], :] .= rhs_i
     end
     dt = time() - _t
-    println("[$dt] Update rhs")
+    #println("[$dt] Update rhs")
     # By updating B in-place, we have implicitly applied the inverse
     # row permutation to our solution. We must undo this row permutation
     # *and* apply the column permutation to our solution in order to
