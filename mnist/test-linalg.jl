@@ -51,8 +51,6 @@ function _test_solve_nominal(
     MadNLP.solve!(schur_solver, sol_schur)
     @test all(isapprox.(sol_ma27, sol_schur; atol=1e-8))
     maxdiff = maximum(abs.(sol_ma27 - sol_schur))
-    display(sol_ma27)
-    display(sol_schur)
     println("||ϵ|| = $maxdiff")
     return
 end
@@ -104,11 +102,11 @@ function test_factorize_nominal_tiny(; PivotSolver = MadNLPHSL.Ma27Solver)
     return
 end
 
-function test_factorize_nominal_small_nn()
+function test_factorize_nominal_small_nn(; PivotSolver = MadNLPHSL.Ma27Solver)
     m, info = make_small_nn_model()
     _, _, matrix = get_kkt(m)
     indices = get_kkt_indices(m, info.variables, info.constraints)
-    _test_factorize_nominal(matrix, convert(Vector{Int32}, indices))
+    _test_factorize_nominal(matrix, convert(Vector{Int32}, indices); PivotSolver)
     return
 end
 
@@ -121,11 +119,11 @@ function test_solve_nominal_tiny(; PivotSolver = MadNLPHSL.Ma27Solver)
     return
 end
 
-function test_solve_nominal_small_nn()
+function test_solve_nominal_small_nn(; PivotSolver = MadNLPHSL.Ma27Solver)
     m, info = make_small_nn_model()
     _, _, matrix = get_kkt(m)
     indices = get_kkt_indices(m, info.variables, info.constraints)
-    _test_solve_nominal(matrix, convert(Vector{Int32}, indices))
+    _test_solve_nominal(matrix, convert(Vector{Int32}, indices); PivotSolver)
     return
 end
 
@@ -136,9 +134,9 @@ function test_solve_repeated_tiny(; Solver = MadNLPHSL.Ma57Solver, PivotSolver =
     return
 end
 
-function test_solve_repeated_small_nn(; atol = 1e-8)
+function test_solve_repeated_small_nn(; PivotSolver = MadNLPHSL.Ma27Solver, atol = 1e-8)
     m, info = make_small_nn_model()
-    _test_solve_repeated(m, info.variables, info.constraints; atol)
+    _test_solve_repeated(m, info.variables, info.constraints; PivotSolver, atol)
     return
 end
 
@@ -161,7 +159,7 @@ function test_nlp_solve_tiny(; PivotSolver = MadNLPHSL.Ma27Solver)
     return
 end
 
-function test_nlp_solve_small_nn()
+function test_nlp_solve_small_nn(; PivotSolver = MadNLPHSL.Ma57Solver)
     m, info = make_small_nn_model()
     nlp, _, _ = get_kkt(m)
     pivot_indices = get_kkt_indices(m, info.variables, info.constraints)
@@ -173,7 +171,7 @@ function test_nlp_solve_small_nn()
         #"linear_solver" => MadNLPHSL.Ma27Solver,
         "linear_solver" => SchurComplementSolver,
         "pivot_indices" => pivot_indices,
-        "PivotSolver" => MadNLPHSL.Ma57Solver,
+        "PivotSolver" => PivotSolver,
         "ReducedSolver" => MadNLPHSL.Ma57Solver,
     )
     JuMP.set_optimizer(m, optimizer)
@@ -230,4 +228,9 @@ end
     test_solve_nominal_tiny(PivotSolver = BlockTriangularSolver)
     test_solve_repeated_tiny(PivotSolver = BlockTriangularSolver)
     test_nlp_solve_tiny(PivotSolver = BlockTriangularSolver)
+
+    test_factorize_nominal_small_nn(PivotSolver = BlockTriangularSolver)
+    test_solve_nominal_small_nn(PivotSolver = BlockTriangularSolver)
+    test_solve_repeated_small_nn(; PivotSolver = BlockTriangularSolver, atol = 1e-4)
+    #test_nlp_solve_small_nn(; PivotSolver = BlockTriangularSolver)
 end

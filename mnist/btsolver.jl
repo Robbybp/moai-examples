@@ -297,10 +297,10 @@ function MadNLP.factorize!(solver::BlockTriangularSolver)
         end
     end
     dt = time() - t0
-    println("[$dt] Allocate matrices")
+    #println("[$dt] Allocate matrices")
     I, J, V = SparseArrays.findnz(csc)
     dt = time() - t0
-    println("[$dt] findnz")
+    #println("[$dt] findnz")
     nnz = length(I)
     # Extract entries in the diagonal blocks. I.e., the row and column are
     # both in the same block.
@@ -320,7 +320,7 @@ function MadNLP.factorize!(solver::BlockTriangularSolver)
     end
 
     dt = time() - t0
-    println("[$dt] Loop over nonzeros")
+    #println("[$dt] Loop over nonzeros")
     # Note that this allocates new Factorization objects.
     if solver.block_diagonalize
         factors = LinearAlgebra.factorize.(solver.blockdiagonal_views)
@@ -329,7 +329,7 @@ function MadNLP.factorize!(solver::BlockTriangularSolver)
     end
     solver.factors = factors
     dt = time() - t0
-    println("[$dt] factorize")
+    #println("[$dt] factorize")
     return
 end
 
@@ -428,8 +428,6 @@ function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Matrix)
     _t = time()
     #println()
     #println("Entering backsolve loop for $nblock blocks and $nedges edges")
-    println("Before backsolve loop")
-    display.(rhs_blocks)
     for b in 1:nblock
         local _t = time()
         # What ever struct I return from `factorize`, it should support
@@ -448,8 +446,6 @@ function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Matrix)
             t_multiply_and_subtract += time() - _t
         end
     end
-    println("After backsolve loop")
-    display.(rhs_blocks)
     t_loop = time() - _t
     #println("---------------")
     #println("Backsolve loop:")
