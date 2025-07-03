@@ -15,6 +15,8 @@ include("linalg.jl")
 include("formulation.jl")
 include("nlpmodels.jl")
 include("models.jl")
+include("btsolver.jl")
+include("kkt-partition.jl")
 
 function precompile_linalg(; Solver=MadNLPHSL.Ma27Solver, schur=true)
     model, info = make_tiny_model()
@@ -142,8 +144,15 @@ function profile_solver(
     println("Time to build model and extract KKT: $t_model")
     rhs = ones(kkt_matrix.m)
 
-    if schur
-        opt = SchurComplementOptions(; ReducedSolver = Solver, PivotSolver = Solver, pivot_indices = pivot_indices)
+    if schur || Solver == SchurComplementSolver
+        blocks = partition_indices_by_layer(model, formulation)
+        pivot_solver_opt = BlockTriangularOptions(; blocks)
+        opt = SchurComplementOptions(;
+            ReducedSolver = Solver,
+            PivotSolver = BlockTriangularSolver,
+            pivot_indices = pivot_indices,
+            pivot_solver_opt,
+        )
         info = profile_solver(SchurComplementSolver, kkt_matrix; opt)
     else
         info = profile_solver(Solver, kkt_matrix)
@@ -172,8 +181,8 @@ end
     end
 
     #nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
-    nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
-    #nnfile = joinpath("nn-models", "mnist-relu2048nodes4layers.pt")
+    #nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
+    nnfile = joinpath("nn-models", "mnist-relu2048nodes4layers.pt")
     model, outputs, formulation = get_adversarial_model(
         nnfile, IMAGE_INDEX, ADVERSARIAL_LABEL, THRESHOLD;
         reduced_space = false
@@ -183,6 +192,9 @@ end
     #profile_solver(MadNLPHSL.Ma27Solver, kkt_matrix)
     #profile_solver(MadNLPHSL.Ma27Solver, nnfile; reduced_space = true)
     results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = true)
+    println(results.timer)
+    results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = false)
+    println(results.timer)
 
     # The following is for examing specific submatrices in the Schur complement construction
     #pivot_vars, pivot_cons = get_vars_cons(formulation)
@@ -199,9 +211,6 @@ end
     #nnzcol_percent = 100.0 * nnzcols / length(R)
     #nnzcol_percent = Printf.@sprintf("%1.1f", nnzcol_percent)
     #println("$nnzcols out of $(length(R)) columns have entries ($(nnzcol_percent)%)")
-
-    # TODO: We'll want this in a real data structure
-    println(results.timer)
 
     PROFILE = false
     if PROFILE
