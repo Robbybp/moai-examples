@@ -46,12 +46,12 @@ struct BlockDiagonalLU
     factors::Vector{LinearAlgebra.LU}
 end
 
-function LinearAlgebra.lu(bd::BlockDiagonalView)
+function LinearAlgebra.lu(bd::BlockDiagonalView; check = true)
     # Update diagonal block matrices
     for (i, block) in enumerate(bd.blocks)
         block .= bd.matrix[bd.row_partition[i], bd.col_partition[i]]
     end
-    factors = LinearAlgebra.lu.(bd.blocks)
+    factors = LinearAlgebra.lu.(bd.blocks; check)
     return BlockDiagonalLU(bd.row_partition, bd.col_partition, factors)
 end
 

@@ -322,6 +322,16 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     solver.pivot_solver.csc.nzval[:] = solver.csc[solver.pivot_indices, solver.pivot_indices].nzval
     solver.timer.factorize.update_pivot += time() - t_start
 
+    #ma27 = MadNLPHSL.Ma27Solver(solver.pivot_solver.csc; logger = MadNLP.MadNLPLogger())
+    #MadNLP.factorize!(ma27)
+    #display(ma27.info)
+    #full_matrix, _ = MadNLP.get_tril_to_full(solver.pivot_solver.csc)
+    #display(full_matrix)
+    #res = LinearAlgebra.lu(Matrix(full_matrix))
+    #res = LinearAlgebra.bunchkaufman(Matrix(full_matrix))
+    #display(res)
+    #exit()
+
     t_pivot_start = time()
     MadNLP.factorize!(solver.pivot_solver)
     solver.timer.factorize.pivot += time() - t_pivot_start

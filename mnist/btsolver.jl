@@ -323,9 +323,9 @@ function MadNLP.factorize!(solver::BlockTriangularSolver)
     #println("[$dt] Loop over nonzeros")
     # Note that this allocates new Factorization objects.
     if solver.block_diagonalize
-        factors = LinearAlgebra.factorize.(solver.blockdiagonal_views)
+        factors = LinearAlgebra.lu.(solver.blockdiagonal_views; check = false)
     else
-        factors = LinearAlgebra.factorize.(solver.diagonal_block_matrices)
+        factors = LinearAlgebra.lu.(solver.diagonal_block_matrices; check = false)
     end
     solver.factors = factors
     dt = time() - t0
