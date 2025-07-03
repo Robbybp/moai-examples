@@ -222,8 +222,15 @@ function SchurComplementSolver(
     reduced_matrix = SparseArrays.sparse(I, J, V)
 
     pivot_matrix = csc[P, P]
-    # NOTE: We defer evaluation of default_options until this point because of how
-    # MadNLP handles options (it assumes no dependency among options).
+    # Filter constraint-regularization nonzeros. We assume that our pivot submatrix
+    # is always nonsingular, so we never want to regularize it. More importantly,
+    # regularization breaks this submatrix's decomposability.
+    con_reg_indices = collect(Int(pivot_dim / 2 + 1):pivot_dim)
+    pivot_matrix = remove_diagonal_nonzeros(pivot_matrix, con_reg_indices)
+    # NOTE: We defer evaluation of default_options until this point because MadNLP
+    # assumes no dependency among options. This way we call default_options only once
+    # we know what PivotSolver was specified as (instead of just calling it on the default
+    # PivotSolver (MA27) earlier).
     pivot_solver_opt = something(opt.pivot_solver_opt, MadNLP.default_options(PivotSolver))
     pivot_solver = PivotSolver(pivot_matrix; opt = pivot_solver_opt, logger)
 
@@ -319,7 +326,12 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     #)
 
     t_start = time()
-    solver.pivot_solver.csc.nzval[:] = solver.csc[solver.pivot_indices, solver.pivot_indices].nzval
+    pivot_dim = length(solver.pivot_indices)
+    # Update pivot matrix (after filtering constraint regularization nonzeros)
+    con_reg_indices = collect(Int(pivot_dim / 2 + 1):pivot_dim)
+    updated_pivot_matrix = solver.csc[solver.pivot_indices, solver.pivot_indices]
+    updated_pivot_matrix = remove_diagonal_nonzeros(updated_pivot_matrix, con_reg_indices)
+    solver.pivot_solver.csc.nzval[:] = updated_pivot_matrix.nzval
     solver.timer.factorize.update_pivot += time() - t_start
 
     #ma27 = MadNLPHSL.Ma27Solver(solver.pivot_solver.csc; logger = MadNLP.MadNLPLogger())
@@ -347,7 +359,6 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
 
     # Get indices
     dim = solver.csc.n
-    pivot_dim = length(solver.pivot_indices)
     reduced_dim = dim - pivot_dim
     pivot_index_set = Set(solver.pivot_indices)
     reduced_indices = filter(i -> !(i in pivot_index_set), 1:dim)
@@ -519,6 +530,6 @@ function remove_diagonal_nonzeros(
     I = I[to_retain]
     J = J[to_retain]
     V = V[to_retain]
-    newcsc = SparseArrays.sparse(I, J, V)
+    newcsc = SparseArrays.sparse(I, J, V, csc.m, csc.n)
     return newcsc
 end

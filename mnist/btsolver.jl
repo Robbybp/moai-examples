@@ -88,15 +88,16 @@ function BlockTriangularSolver(
         @assert issubset(all_row_indices, expected_indices)
         @assert issubset(all_col_indices, expected_indices)
 
-        csc_blocks = map(b -> original_matrix[b...], blocks)
-        block_matchings = MathProgIncidence.maximum_matching.(csc_blocks)
+        # Sanity check that diagonal blocks are structurally nonsingular
+        sparse_diagonal_blocks = map(b -> full_matrix[b...], blocks)
+        block_matchings = MathProgIncidence.maximum_matching.(sparse_diagonal_blocks)
         if !all(length.(block_matchings) .== map(b -> length(first(b)), blocks))
             error(
                 "At least one diagonal block does not have a perfect matching."
                 * "This block is structurally singular."
             )
         end
-        block_ccs = MathProgIncidence.connected_components.(csc_blocks)
+        block_ccs = MathProgIncidence.connected_components.(sparse_diagonal_blocks)
         # Block-diagonal blocksizes
         bd_blocksizes = map(ccs -> map(cc -> length(cc), ccs[1]), block_ccs)
         block_diagonalize = true

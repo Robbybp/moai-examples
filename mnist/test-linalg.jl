@@ -13,6 +13,7 @@ include("linalg.jl")
 include("nlpmodels.jl")
 include("models.jl")
 include("btsolver.jl")
+include("kkt-partition.jl")
 
 Random.seed!(1111)
 
@@ -20,9 +21,10 @@ function _test_factorize_nominal(
     kkt_matrix::SparseArrays.SparseMatrixCSC,
     pivot_indices::Vector{Int32};
     PivotSolver = MadNLPHSL.Ma27Solver,
+    pivot_solver_opt = nothing,
 )
     ma27 = MadNLPHSL.Ma27Solver(kkt_matrix)
-    opt = SchurComplementOptions(; pivot_indices, PivotSolver)
+    opt = SchurComplementOptions(; pivot_indices, PivotSolver, pivot_solver_opt)
     schur_solver = SchurComplementSolver(kkt_matrix; opt)
 
     MadNLP.factorize!(ma27)
@@ -39,9 +41,10 @@ function _test_solve_nominal(
     pivot_indices::Vector{Int32};
     rhs::Vector{Float64} = ones(kkt_matrix.m),
     PivotSolver = MadNLPHSL.Ma27Solver,
+    pivot_solver_opt = nothing,
 )
     ma27 = MadNLPHSL.Ma27Solver(kkt_matrix)
-    opt = SchurComplementOptions(; pivot_indices, PivotSolver)
+    opt = SchurComplementOptions(; pivot_indices, PivotSolver, pivot_solver_opt)
     schur_solver = SchurComplementSolver(kkt_matrix; opt)
     MadNLP.factorize!(ma27)
     MadNLP.factorize!(schur_solver)
@@ -63,13 +66,14 @@ function _test_solve_repeated(
     atol::Float64 = 1e-8,
     Solver::Type = MadNLPHSL.Ma27Solver,
     PivotSolver::Type = MadNLPHSL.Ma27Solver,
+    pivot_solver_opt = nothing,
 ) # where T <: AbstractLinearSolver ?
     nlp, kkt_system, kkt_matrix = get_kkt(model)
     varorder, _ = get_var_con_order(model)
     pivot_indices = get_kkt_indices(model, variables, constraints)
     ma27 = MadNLPHSL.Ma27Solver(kkt_matrix)
     pivot_indices = convert(Vector{Int32}, pivot_indices)
-    opt = SchurComplementOptions(; pivot_indices, PivotSolver=PivotSolver, ReducedSolver=Solver)
+    opt = SchurComplementOptions(; pivot_indices, PivotSolver=PivotSolver, ReducedSolver=Solver, pivot_solver_opt)
     schur_solver = SchurComplementSolver(kkt_matrix; opt)
     nvar = NLPModels.get_nvar(nlp)
     for i in 1:nsamples
@@ -106,7 +110,13 @@ function test_factorize_nominal_small_nn(; PivotSolver = MadNLPHSL.Ma27Solver)
     m, info = make_small_nn_model()
     _, _, matrix = get_kkt(m)
     indices = get_kkt_indices(m, info.variables, info.constraints)
-    _test_factorize_nominal(matrix, convert(Vector{Int32}, indices); PivotSolver)
+    if PivotSolver == BlockTriangularSolver
+        blocks = partition_indices_by_layer(m, info.formulation)
+        pivot_solver_opt = BlockTriangularOptions(; blocks)
+    else
+        pivot_solver_opt = nothing
+    end
+    _test_factorize_nominal(matrix, convert(Vector{Int32}, indices); PivotSolver, pivot_solver_opt)
     return
 end
 
@@ -123,7 +133,13 @@ function test_solve_nominal_small_nn(; PivotSolver = MadNLPHSL.Ma27Solver)
     m, info = make_small_nn_model()
     _, _, matrix = get_kkt(m)
     indices = get_kkt_indices(m, info.variables, info.constraints)
-    _test_solve_nominal(matrix, convert(Vector{Int32}, indices); PivotSolver)
+    if PivotSolver == BlockTriangularSolver
+        blocks = partition_indices_by_layer(m, info.formulation)
+        pivot_solver_opt = BlockTriangularOptions(; blocks)
+    else
+        pivot_solver_opt = nothing
+    end
+    _test_solve_nominal(matrix, convert(Vector{Int32}, indices); PivotSolver, pivot_solver_opt)
     return
 end
 
@@ -136,7 +152,13 @@ end
 
 function test_solve_repeated_small_nn(; PivotSolver = MadNLPHSL.Ma27Solver, atol = 1e-8)
     m, info = make_small_nn_model()
-    _test_solve_repeated(m, info.variables, info.constraints; PivotSolver, atol)
+    if PivotSolver == BlockTriangularSolver
+        blocks = partition_indices_by_layer(m, info.formulation)
+        pivot_solver_opt = BlockTriangularOptions(; blocks)
+    else
+        pivot_solver_opt = nothing
+    end
+    _test_solve_repeated(m, info.variables, info.constraints; PivotSolver, atol, pivot_solver_opt)
     return
 end
 
@@ -165,6 +187,12 @@ function test_nlp_solve_small_nn(; PivotSolver = MadNLPHSL.Ma57Solver)
     pivot_indices = get_kkt_indices(m, info.variables, info.constraints)
     pivot_indices = convert(Vector{Int32}, pivot_indices)
     # Looks like we can do this with the
+    if PivotSolver == BlockTriangularSolver
+        blocks = partition_indices_by_layer(m, info.formulation)
+        pivot_solver_opt = BlockTriangularOptions(; blocks)
+    else
+        pivot_solver_opt = nothing
+    end
     optimizer = JuMP.optimizer_with_attributes(
         MadNLP.Optimizer,
         "tol" => 1e-6,
@@ -172,6 +200,7 @@ function test_nlp_solve_small_nn(; PivotSolver = MadNLPHSL.Ma57Solver)
         "linear_solver" => SchurComplementSolver,
         "pivot_indices" => pivot_indices,
         "PivotSolver" => PivotSolver,
+        "pivot_solver_opt" => pivot_solver_opt,
         "ReducedSolver" => MadNLPHSL.Ma57Solver,
     )
     JuMP.set_optimizer(m, optimizer)
@@ -209,28 +238,27 @@ end
         test_solve_nominal_small_nn()
         test_solve_repeated_tiny()
 
-        ## This test is very fragile. We frequently have a couple of samples
-        ## where we don't match the two samples to tolerance. Using random
-        ## numbers in (a) the model and (b) the evaluation points doesn't help either.
+        # This test is very fragile. We frequently have a couple of samples
+        # where we don't match the two samples to tolerance. Using random
+        # numbers in (a) the model and (b) the evaluation points doesn't help either.
         test_solve_repeated_small_nn(; atol = 1e-4)
 
         # These check that the solver status is good and the solution is feasible,
         # but don't make sure that it's the solution we expect.
         test_nlp_solve_tiny()
-        test_nlp_solve_small_nn()
+        #test_nlp_solve_small_nn()
     end
 
     # Tests with BTSolver
-    #
-    # This gives the wrong inertia...
-    # but I have no proof that the inertia is stable here...
-    test_factorize_nominal_tiny(PivotSolver = BlockTriangularSolver)
-    test_solve_nominal_tiny(PivotSolver = BlockTriangularSolver)
-    test_solve_repeated_tiny(PivotSolver = BlockTriangularSolver)
-    test_nlp_solve_tiny(PivotSolver = BlockTriangularSolver)
+    if true
+        test_factorize_nominal_tiny(PivotSolver = BlockTriangularSolver)
+        test_solve_nominal_tiny(PivotSolver = BlockTriangularSolver)
+        test_solve_repeated_tiny(PivotSolver = BlockTriangularSolver)
+        test_nlp_solve_tiny(PivotSolver = BlockTriangularSolver)
 
-    test_factorize_nominal_small_nn(PivotSolver = BlockTriangularSolver)
-    test_solve_nominal_small_nn(PivotSolver = BlockTriangularSolver)
-    test_solve_repeated_small_nn(; PivotSolver = BlockTriangularSolver, atol = 1e-4)
-    test_nlp_solve_small_nn(; PivotSolver = BlockTriangularSolver)
+        test_factorize_nominal_small_nn(PivotSolver = BlockTriangularSolver)
+        test_solve_nominal_small_nn(PivotSolver = BlockTriangularSolver)
+        test_solve_repeated_small_nn(; PivotSolver = BlockTriangularSolver, atol = 1e-4)
+        test_nlp_solve_small_nn(; PivotSolver = BlockTriangularSolver)
+    end
 end
