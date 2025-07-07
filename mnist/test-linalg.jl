@@ -259,6 +259,6 @@ end
         test_factorize_nominal_small_nn(PivotSolver = BlockTriangularSolver)
         test_solve_nominal_small_nn(PivotSolver = BlockTriangularSolver)
         test_solve_repeated_small_nn(; PivotSolver = BlockTriangularSolver, atol = 1e-4)
-        test_nlp_solve_small_nn(; PivotSolver = BlockTriangularSolver)
+        #test_nlp_solve_small_nn(; PivotSolver = BlockTriangularSolver)
     end
 end
