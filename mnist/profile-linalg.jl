@@ -20,7 +20,7 @@ include("kkt-partition.jl")
 
 function precompile_linalg(; Solver=MadNLPHSL.Ma27Solver, schur=true)
     model, info = make_tiny_model()
-    _, _, kkt_matrix = get_kkt(model)
+    _, _, kkt_matrix = get_kkt(model; Solver)
     pivot_indices = get_kkt_indices(model, info.variables, info.constraints)
     pivot_indices = convert(Vector{Int32}, pivot_indices)
     opt = SchurComplementOptions(; ReducedSolver=Solver, PivotSolver=Solver, pivot_indices)
@@ -136,6 +136,7 @@ function profile_solver(
         nnfile, IMAGE_INDEX, ADVERSARIAL_LABEL, THRESHOLD;
         reduced_space = reduced_space,
     )
+    println("Getting KKT matrix with solver type $Solver")
     nlp, kkt_system, kkt_matrix = get_kkt(model; Solver)
     pivot_vars, pivot_cons = get_vars_cons(formulation)
     pivot_indices = get_kkt_indices(model, pivot_vars, pivot_cons)
@@ -182,6 +183,7 @@ end
 
     #nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
     #nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
+    #nnfile = joinpath("nn-models", "mnist-relu1536nodes4layers.pt")
     nnfile = joinpath("nn-models", "mnist-relu2048nodes4layers.pt")
     model, outputs, formulation = get_adversarial_model(
         nnfile, IMAGE_INDEX, ADVERSARIAL_LABEL, THRESHOLD;
@@ -196,7 +198,7 @@ end
     results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = false)
     println(results.timer)
 
-    # The following is for examing specific submatrices in the Schur complement construction
+    # The following is for examining specific submatrices in the Schur complement construction
     #pivot_vars, pivot_cons = get_vars_cons(formulation)
     #pivot_indices = get_kkt_indices(model, pivot_vars, pivot_cons)
     #pivot_index_set = Set(pivot_indices)

@@ -4,6 +4,8 @@ import MadNLP
 import MadNLPHSL
 import HSL
 
+using Printf
+
 # For some reason, we need to extend this method
 MadNLP.parse_option(::Any, vec::Vector) = vec
 
@@ -221,12 +223,25 @@ function SchurComplementSolver(
     append!(V, V_BTCB)
     reduced_matrix = SparseArrays.sparse(I, J, V)
 
-    pivot_matrix = csc[P, P]
+    pivot_con_indices = Set(pivot_indices[Int(pivot_dim / 2 + 1):pivot_dim])
+    pivot_nz = findall((Iorig .∈ (pivot_index_set,)) .& (Jorig .∈ (pivot_index_set,)) .& .!(Iorig .== Jorig .& Jorig .∈ (pivot_con_indices,)))
+    # Maps original indices to index in pivot matrix
+    pivot_remap = zeros(dim)
+    pivot_remap[pivot_indices] .= 1:pivot_dim
+    Ipivot = Iorig[pivot_nz]
+    Jpivot = Jorig[pivot_nz]
+    Vpivot = Vorig[pivot_nz]
+    Ipivot = pivot_remap[Ipivot]
+    Jpivot = pivot_remap[Jpivot]
+    pivot_matrix = SparseArrays.sparse(Ipivot, Jpivot, Vpivot, pivot_dim, pivot_dim)
+    #pivot_matrix = csc[P, P]
     # Filter constraint-regularization nonzeros. We assume that our pivot submatrix
     # is always nonsingular, so we never want to regularize it. More importantly,
     # regularization breaks this submatrix's decomposability.
-    con_reg_indices = collect(Int(pivot_dim / 2 + 1):pivot_dim)
-    pivot_matrix = remove_diagonal_nonzeros(pivot_matrix, con_reg_indices)
+    #con_reg_indices = collect(Int(pivot_dim / 2 + 1):pivot_dim)
+    # Calling this function is slow and I don't know why. My best guess is garbage
+    # collection.
+    #pivot_matrix = remove_diagonal_nonzeros(pivot_matrix, con_reg_indices)
     # NOTE: We defer evaluation of default_options until this point because MadNLP
     # assumes no dependency among options. This way we call default_options only once
     # we know what PivotSolver was specified as (instead of just calling it on the default
@@ -326,12 +341,38 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     #)
 
     t_start = time()
+    dim = solver.csc.m
     pivot_dim = length(solver.pivot_indices)
+    pivot_index_set = Set(solver.pivot_indices)
     # Update pivot matrix (after filtering constraint regularization nonzeros)
-    con_reg_indices = collect(Int(pivot_dim / 2 + 1):pivot_dim)
-    updated_pivot_matrix = solver.csc[solver.pivot_indices, solver.pivot_indices]
-    updated_pivot_matrix = remove_diagonal_nonzeros(updated_pivot_matrix, con_reg_indices)
-    solver.pivot_solver.csc.nzval[:] = updated_pivot_matrix.nzval
+    _t = time()
+    # The second half of the pivot indices are constraint indices
+    pivot_con_indices = Set(solver.pivot_indices[Int(pivot_dim / 2 + 1):pivot_dim])
+    #dt = time() - _t; println("[$dt] Pivot indices")
+    I, J, V = SparseArrays.findnz(solver.csc)
+    #dt = time() - _t; println("[$dt] findnz")
+    nnz = SparseArrays.nnz(solver.csc)
+    # pivot_nz contains indices of the original matrix's nonzeros
+    pivot_nz = filter(
+        k -> I[k] in pivot_index_set && J[k] in pivot_index_set && !(I[k] == J[k] && J[k] in pivot_con_indices),
+        1:nnz,
+    )
+    #dt = time() - _t; println("[$dt] filter")
+    pivot_remap = zeros(dim)
+    pivot_remap[solver.pivot_indices] .= 1:pivot_dim
+    Ipivot = I[pivot_nz]
+    Jpivot = J[pivot_nz]
+    Vpivot = V[pivot_nz]
+    Ipivot = pivot_remap[Ipivot]
+    Jpivot = pivot_remap[Jpivot]
+    #dt = time() - _t; println("[$dt] extract and remap")
+    updated_pivot_matrix = SparseArrays.sparse(Ipivot, Jpivot, Vpivot, pivot_dim, pivot_dim)
+    #dt = time() - _t; println("[$dt] sparse")
+    #con_reg_indices = collect(Int(pivot_dim / 2 + 1):pivot_dim)
+    #updated_pivot_matrix = remove_diagonal_nonzeros(updated_pivot_matrix, con_reg_indices)
+    solver.pivot_solver.csc.nzval .= updated_pivot_matrix.nzval
+    #dt = time() - _t; println("[$dt] set values")
+    #solver.pivot_solver.csc.nzval .= solver.csc.nzval[pivot_nz]
     solver.timer.factorize.update_pivot += time() - t_start
 
     #ma27 = MadNLPHSL.Ma27Solver(solver.pivot_solver.csc; logger = MadNLP.MadNLPLogger())
@@ -360,7 +401,6 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     # Get indices
     dim = solver.csc.n
     reduced_dim = dim - pivot_dim
-    pivot_index_set = Set(solver.pivot_indices)
     reduced_indices = filter(i -> !(i in pivot_index_set), 1:dim)
 
     P = solver.pivot_indices
@@ -371,45 +411,26 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     # For entries with p<r in the original matrix, we must transpose the indices.
     B = solver.csc[P, R] + solver.csc[R, P]'
 
-    #display(solver.csc[P, R])
-    #display(solver.csc[R, P])
-    #display(B)
-
-    B_dense = Matrix(B)
-    sol = copy(B_dense)
     t_solve_start = time()
     # Iterate over non-empty columns of B
     nonempty_cols = filter(j -> B.colptr[j] < B.colptr[j+1], 1:reduced_dim)
-    compressed_sol = sol[:, nonempty_cols]
+    B_compressed = B[:, nonempty_cols]
+    compressed_sol = Matrix(B_compressed)
     # Backsolve over a matrix of RHSs. Note that this produces dense solutions
     # and relies on local extensions of `MadNLP.solve!`.
     MadNLP.solve!(solver.pivot_solver, compressed_sol)
-    sol[:, nonempty_cols] = compressed_sol
 
     solver.timer.factorize.solve += time() - t_solve_start
-    #println("B:")
-    #display(B)
-    #println("C:")
-    #display(solver.pivot_solver.csc)
     t_multiply_start = time()
-    term2 = B' * SparseArrays.sparse(sol)
+    # While B_compressed is sparse, it may be better to convert to dense here?
+    #compressed_term2 = Matrix(B_compressed') * compressed_sol
+    compressed_term2 = B_compressed' * compressed_sol
+    term2 = SparseArrays.spzeros(reduced_dim, reduced_dim)
+    term2[nonempty_cols, nonempty_cols] = compressed_term2
     solver.timer.factorize.multiply += time() - t_multiply_start
-    #println("B' C^-1 B")
-    #display(term2)
     # The nonzero storage pattern here is not consistent.
     schur_complement = A - LinearAlgebra.tril(term2)
-    #println("Schur complement matrix:")
-    #display(schur_complement)
-    #tol = 1e-10
-    #nsmall = count(x -> abs(x) <= tol, schur_complement.nzval)
-    #println("$nsmall entries with values below $tol")
     schur_lookup = Dict((i, j) => v for (i, j, v) in zip(SparseArrays.findnz(schur_complement)...))
-
-    #println("Computed Schur complement:")
-    #display(schur_complement)
-    #display(Matrix(schur_complement))
-    #println("schur_lookup:")
-    #display(schur_lookup)
 
     t_update_start = time()
     for j in 1:reduced_dim # Iterate over columns
@@ -462,7 +483,6 @@ function MadNLP.solve!(solver::SchurComplementSolver{T,INT}, rhs::Vector{T}) whe
     orig_rhs_reduced = rhs[reduced_indices]
     orig_rhs_pivot = rhs[solver.pivot_indices]
 
-    #display(orig_rhs_reduced)
     # Original system:
     #      R  P
     #      -----
@@ -482,8 +502,6 @@ function MadNLP.solve!(solver::SchurComplementSolver{T,INT}, rhs::Vector{T}) whe
 
     temp = copy(orig_rhs_pivot)
     MadNLP.solve!(solver.pivot_solver, temp)
-    #println("C^-1 r_x")
-    #display(temp)
     rhs_reduced = orig_rhs_reduced - B' * temp
 
     MadNLP.solve!(solver.reduced_solver, rhs_reduced)
@@ -522,14 +540,20 @@ function remove_diagonal_nonzeros(
     csc::SparseArrays.SparseMatrixCSC,
     indices::Vector{Int},
 )
+    _t = time()
     indexset = Set(indices)
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] indexset")
     nnz = SparseArrays.nnz(csc)
     I, J, V = SparseArrays.findnz(csc)
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] findnz")
     # Keep the entry if its row isn't in the index set or it's not on the diagonal
-    to_retain = filter(k -> !(I[k] in indexset) || I[k] != J[k], 1:nnz)
+    to_retain = filter(k -> I[k] != J[k] || !(I[k] in indexset), 1:nnz)
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] filter")
     I = I[to_retain]
     J = J[to_retain]
     V = V[to_retain]
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] extract indices")
     newcsc = SparseArrays.sparse(I, J, V, csc.m, csc.n)
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] sparse")
     return newcsc
 end
