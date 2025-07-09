@@ -2,10 +2,13 @@
 
 function partition_indices_by_layer(
     model::JuMP.Model,
-    formulation::MOAI.PipelineFormulation,
+    formulation::MOAI.PipelineFormulation;
+    indices::Union{Nothing,Vector} = nothing,
 )
     variables, constraints = get_vars_cons(formulation)
-    indices = get_kkt_indices(model, variables, constraints)
+    if indices === nothing
+        indices = get_kkt_indices(model, variables, constraints)
+    end
     index_remap = Dict((p, i) for (i, p) in enumerate(indices))
     layers = get_layers(formulation)
     var_con_by_layer = [get_vars_cons(l) for l in layers]

@@ -246,6 +246,10 @@ function SchurComplementSolver(
     # assumes no dependency among options. This way we call default_options only once
     # we know what PivotSolver was specified as (instead of just calling it on the default
     # PivotSolver (MA27) earlier).
+    #println("Applying options to pivot solver: $(typeof(opt.pivot_solver_opt))")
+    #if opt.pivot_solver_opt !== nothing
+    #    println("N. blocks for BTSolver: $(length(opt.pivot_solver_opt.blocks))")
+    #end
     pivot_solver_opt = something(opt.pivot_solver_opt, MadNLP.default_options(PivotSolver))
     pivot_solver = PivotSolver(pivot_matrix; opt = pivot_solver_opt, logger)
 
@@ -301,6 +305,7 @@ function SchurComplementSolver(
     # TODO: Allow passing options to subsolver
     reduced_solver = ReducedSolver(reduced_matrix; logger)
 
+    #println("Time spend initializing: $(time() - t_start)")
     timer.initialize += time() - t_start
 
     return SchurComplementSolver{FloatType,IntType}(
@@ -449,6 +454,7 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     # Potentially, I could pre-compute some matrices that I need for the solve
     # of the Schur systems.
     solver.timer.factorize.total += time() - t_start
+    #println("Time spend factorizing: $(time() - t_start)")
     return solver
 end
 
@@ -510,6 +516,7 @@ function MadNLP.solve!(solver::SchurComplementSolver{T,INT}, rhs::Vector{T}) whe
     rhs[R] .= rhs_reduced
     rhs[P] .= rhs_pivot
     solver.timer.solve += time() - t_start
+    #println("Time spend in backsolve: $(time() - t_start)")
     return rhs
 end
 

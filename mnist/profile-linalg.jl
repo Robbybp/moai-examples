@@ -182,20 +182,21 @@ end
     end
 
     #nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
+    nnfile = joinpath("nn-models", "mnist-relu512nodes4layers.pt")
     #nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
     #nnfile = joinpath("nn-models", "mnist-relu1536nodes4layers.pt")
-    nnfile = joinpath("nn-models", "mnist-relu2048nodes4layers.pt")
+    #nnfile = joinpath("nn-models", "mnist-relu2048nodes4layers.pt")
     model, outputs, formulation = get_adversarial_model(
         nnfile, IMAGE_INDEX, ADVERSARIAL_LABEL, THRESHOLD;
         reduced_space = false
     )
     nlp, kkt_system, kkt_matrix = get_kkt(model, Solver=MadNLPHSL.Ma57Solver)
-    #display(kkt_matrix)
+    display(kkt_matrix)
     #profile_solver(MadNLPHSL.Ma27Solver, kkt_matrix)
     #profile_solver(MadNLPHSL.Ma27Solver, nnfile; reduced_space = true)
-    results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = true)
+    @time results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = true)
     println(results.timer)
-    results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = false)
+    @time results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = false)
     println(results.timer)
 
     # The following is for examining specific submatrices in the Schur complement construction
