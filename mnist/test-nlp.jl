@@ -9,6 +9,7 @@ import Random
 import SparseArrays
 using Test
 using Printf
+using Profile, PProf
 
 include("linalg.jl")
 include("btsolver.jl")
@@ -55,7 +56,8 @@ function make_square_model(nnfile)
     return m, y, formulation
 end
 
-nnfile = joinpath("nn-models", "mnist-relu2048nodes4layers.pt")
+nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
+#nnfile = joinpath("nn-models", "mnist-relu512nodes4layers.pt")
 image_index = 7
 adversarial_label = 1
 threshold = 0.6
@@ -87,15 +89,34 @@ madnlp_schur = JuMP.optimizer_with_attributes(
     "max_iter" => 10,
 )
 JuMP.set_optimizer(m, madnlp_schur)
-@time JuMP.optimize!(m)
 
-println()
-println("Solving with MA57")
-madnlp_ma57 = JuMP.optimizer_with_attributes(
-    MadNLP.Optimizer,
-    "tol" => 1e-6,
-    "linear_solver" => MadNLPHSL.Ma57Solver,
-    "max_iter" => 10,
-)
-JuMP.set_optimizer(m, madnlp_ma57)
-@time JuMP.optimize!(m)
+PROFILE_ALLOCS = false
+if PROFILE_ALLOCS
+    Profile.Allocs.@profile sample_rate=0.0001 JuMP.optimize!(m)
+    #Profile.print()
+    #Profile.print(format = :flat, sortedby = :count, mincount = 100)
+    PProf.Allocs.pprof()
+end
+
+PROFILE_RUNTIME = false
+if PROFILE_RUNTIME
+    Profile.@profile JuMP.optimize!(m)
+    data, lidict = Profile.retrieve()
+    # default is 62261
+    PProf.pprof(data, lidict; webport = 62262)
+end
+
+@timev JuMP.optimize!(m)
+
+if false
+    println()
+    println("Solving with MA57")
+    madnlp_ma57 = JuMP.optimizer_with_attributes(
+        MadNLP.Optimizer,
+        "tol" => 1e-6,
+        "linear_solver" => MadNLPHSL.Ma57Solver,
+        "max_iter" => 10,
+    )
+    JuMP.set_optimizer(m, madnlp_ma57)
+    @time JuMP.optimize!(m)
+end

@@ -7,4 +7,4 @@ import MathOptAI
 allocdata = open("allocdata.bin", "r") do io
     return deserialize(io)
 end
-PProf.Allocs.pprof(allocdata)
+PProf.Allocs.pprof(allocdata; webport = 62260)
