@@ -113,7 +113,7 @@ function test_factorize_nominal_small_nn(; PivotSolver = MadNLPHSL.Ma27Solver)
     m, info = make_small_nn_model()
     _, _, matrix = get_kkt(m)
     indices = get_kkt_indices(m, info.variables, info.constraints)
-    indices = sort(indices)
+    #indices = sort(indices)
     if PivotSolver == BlockTriangularSolver
         blocks = partition_indices_by_layer(m, info.formulation; indices)
         pivot_solver_opt = BlockTriangularOptions(; blocks)
@@ -137,7 +137,7 @@ function test_solve_nominal_small_nn(; PivotSolver = MadNLPHSL.Ma27Solver)
     m, info = make_small_nn_model()
     _, _, matrix = get_kkt(m)
     indices = get_kkt_indices(m, info.variables, info.constraints)
-    indices = sort(indices)
+    #indices = sort(indices)
     if PivotSolver == BlockTriangularSolver
         # These blocks are in the space of the pivot matrix's indices.
         # Their order corresponds to the order of indices from get_kkt_indices.
@@ -160,7 +160,7 @@ end
 function test_solve_repeated_small_nn(; PivotSolver = MadNLPHSL.Ma27Solver, atol = 1e-8)
     m, info = make_small_nn_model()
     indices = get_kkt_indices(m, info.variables, info.constraints)
-    indices = sort(indices)
+    #indices = sort(indices)
     if PivotSolver == BlockTriangularSolver
         blocks = partition_indices_by_layer(m, info.formulation; indices)
         pivot_solver_opt = BlockTriangularOptions(; blocks)
@@ -195,7 +195,7 @@ function test_nlp_solve_small_nn(; PivotSolver = MadNLPHSL.Ma57Solver)
     nlp, _, _ = get_kkt(m)
     pivot_indices = get_kkt_indices(m, info.variables, info.constraints)
     pivot_indices = convert(Vector{Int32}, pivot_indices)
-    pivot_indices = sort(pivot_indices)
+    #pivot_indices = sort(pivot_indices)
     # Looks like we can do this with the
     if PivotSolver == BlockTriangularSolver
         blocks = partition_indices_by_layer(m, info.formulation; indices = pivot_indices)
