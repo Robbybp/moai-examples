@@ -22,6 +22,7 @@ function precompile_linalg(; Solver=MadNLPHSL.Ma27Solver, schur=true)
     model, info = make_tiny_model()
     _, _, kkt_matrix = get_kkt(model; Solver)
     pivot_indices = get_kkt_indices(model, info.variables, info.constraints)
+    pivot_indices = sort(pivot_indices)
     pivot_indices = convert(Vector{Int32}, pivot_indices)
     opt = SchurComplementOptions(; ReducedSolver=Solver, PivotSolver=Solver, pivot_indices)
     solver = SchurComplementSolver(kkt_matrix; opt)
@@ -44,6 +45,7 @@ if false
     nlp, kkt_system, kkt_matrix = get_kkt(model)
     pivot_vars, pivot_cons = get_vars_cons(formulation)
     pivot_indices = get_kkt_indices(model, pivot_vars, pivot_cons)
+    #pivot_indices = sort(pivot_indices)
     pivot_indices = convert(Vector{Int32}, pivot_indices)
     rhs = ones(kkt_matrix.m)
     opt = SchurComplementOptions(; pivot_indices)
@@ -140,13 +142,16 @@ function profile_solver(
     nlp, kkt_system, kkt_matrix = get_kkt(model; Solver)
     pivot_vars, pivot_cons = get_vars_cons(formulation)
     pivot_indices = get_kkt_indices(model, pivot_vars, pivot_cons)
+    #pivot_indices = sort(pivot_indices)
     pivot_indices = convert(Vector{Int32}, pivot_indices)
     t_model = time() - t_model_start
     println("Time to build model and extract KKT: $t_model")
     rhs = ones(kkt_matrix.m)
 
     if schur || Solver == SchurComplementSolver
-        blocks = partition_indices_by_layer(model, formulation)
+        # RECALL: It is critically important to use remap the indices of 
+        # this partition into the correct sorted order.
+        blocks = partition_indices_by_layer(model, formulation; indices = pivot_indices)
         pivot_solver_opt = BlockTriangularOptions(; blocks)
         opt = SchurComplementOptions(;
             ReducedSolver = Solver,
@@ -182,8 +187,8 @@ end
     end
 
     #nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
-    nnfile = joinpath("nn-models", "mnist-relu512nodes4layers.pt")
-    #nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
+    #nnfile = joinpath("nn-models", "mnist-relu512nodes4layers.pt")
+    nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
     #nnfile = joinpath("nn-models", "mnist-relu1536nodes4layers.pt")
     #nnfile = joinpath("nn-models", "mnist-relu2048nodes4layers.pt")
     model, outputs, formulation = get_adversarial_model(

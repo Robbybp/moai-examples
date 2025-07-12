@@ -97,12 +97,14 @@ mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions
     ReducedSolver::Type
     PivotSolver::Type
     pivot_indices::Vector{INT}
+    #pivot_index_partition::Union{Nothing,Vector{Tuple{Vector{INT},Vector{INT}}}}
     pivot_solver_opt::Union{Nothing,MadNLP.AbstractOptions}
     function SchurComplementOptions(;
         # TODO: Non-third party default subsolver
         ReducedSolver = MadNLPHSL.Ma27Solver,
         PivotSolver = MadNLPHSL.Ma27Solver,
         pivot_indices = Int32[],
+        #pivot_index_partition = nothing,
         # NOTE: If pivot_solver_opt is not specified, we will use
         # default_options(PivotSolver) in the SchurComplementSolver constructor.
         pivot_solver_opt = nothing,
@@ -111,6 +113,7 @@ mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions
             ReducedSolver,
             PivotSolver,
             pivot_indices,
+            #pivot_index_partition,
             pivot_solver_opt,
         )
     end
@@ -123,6 +126,9 @@ struct SchurComplementSolver{T,INT} <: MadNLP.AbstractLinearSolver{T}
     # These are indices on which we pivot rows and columns.
     pivot_indices::Vector{INT}
     timer::SchurComplementTimer
+
+    # Index maps required for in-place operations
+    pivot_nz::Vector{INT}
 end
 
 function _sparse_schur(
@@ -181,15 +187,75 @@ function SchurComplementSolver(
     pivot_dim = length(pivot_indices)
     reduced_dim = dim - pivot_dim
     Iorig, Jorig, Vorig = SparseArrays.findnz(csc)
+    @assert all(Iorig .== csc.rowval)
     # Assert that only lower triangular entries are provided.
     # If parts of the upper triangle are provided, our Schur complement below
     # will be incorrect.
     @assert all(Iorig .>= Jorig)
+    # Make sure the original matrix contains no duplicates
+    # COO has no duplicates:
+    @assert length(Set(zip(Iorig, Jorig))) == length(Iorig)
+    # CSC has same number of duplicates as COO:
+    @assert length(Vorig) == length(csc.nzval)
+
+    # Sort pivot indices
+    #pivot_index_perm = sortperm(pivot_indices)
+    #pivot_indices = pivot_indices[pivot_index_perm]
+    #
+    # This is getting too complicated. I think I like just punting to the user
+    # and making sure they sort the pivot indices. Then it's also their
+    # responsibility to make sure that any partition provided in pivot_solver_opt
+    # is consistent with their indices.
+    #
+    # I actually think this will not be necessary... All I need to do is sort
+    # the pivot nonzeros, as below.
+    #@assert issorted(pivot_indices)
 
     pivot_index_set = Set(pivot_indices)
     reduced_indices = filter(i -> !(i in pivot_index_set), 1:dim)
     R = reduced_indices
     P = pivot_indices
+
+    nnz = SparseArrays.nnz(csc)
+    I_is_pivot_nz = Iorig .∈ (pivot_index_set,)
+    J_is_pivot_nz = Jorig .∈ (pivot_index_set,)
+    # By convention, the second half of pivot indices correspond to constraints.
+    # This better be true even after we sort the pivot indices...
+    pivot_con_indices = Set(pivot_indices[Int(pivot_dim / 2 + 1):pivot_dim])
+    is_pivot_con_diagonal = (Iorig .== Jorig) .& (Jorig .∈ (pivot_con_indices,))
+    pivot_nz = findall(I_is_pivot_nz .& J_is_pivot_nz .& .!is_pivot_con_diagonal)
+    reduced_nz = findall(.!I_is_pivot_nz .& .!J_is_pivot_nz)
+    offdiag_nz = findall(I_is_pivot_nz .⊻ J_is_pivot_nz)
+    #@assert length(pivot_nz) + length(reduced_nz) + length(offdiag_nz) == nnz
+
+    # I have the indices of the nzval for each submatrix.
+    pivot_remap = zeros(dim)
+    # Remap pivot indices to start from 1
+    pivot_remap[pivot_indices] .= 1:pivot_dim
+    Ipivot = pivot_remap[Iorig[pivot_nz]]
+    Jpivot = pivot_remap[Jorig[pivot_nz]]
+    Vpivot = Vorig[pivot_nz]
+    # TODO: Sort pivot NZs by column if not already sorted.
+    #@assert issorted(Jpivot)
+    # 
+    # `sparse` appears to sort by col (mandatory for CSC) then by row-within-col.
+    # I need to reproduce this sorting.
+    pivot_bycol = sortperm(pivot_dim .* Jpivot .+ Ipivot)
+    Ipivot = Ipivot[pivot_bycol]
+    Jpivot = Jpivot[pivot_bycol]
+    Vpivot = Vpivot[pivot_bycol]
+    pivot_nz = pivot_nz[pivot_bycol]
+    pivot_matrix = SparseArrays.sparse(Ipivot, Jpivot, Vpivot, pivot_dim, pivot_dim)
+    # If I don't sort nonzeros by column, I expect this to fail
+    #for k in 1:SparseArrays.nnz(pivot_matrix)
+    #    println("col=$(Jpivot[k]), row=$(Ipivot[k]), newrow=$(pivot_matrix.rowval[k])")
+    #end
+    @assert all(Ipivot .== pivot_matrix.rowval)
+
+    # I will eventually run the following code to update the nonzeros:
+    #solver.pivot_solver.csc.nzval .= solver.csc.nzval[pivot_nzs]
+    #solver.reduced_solver.csc.nzval .= solver.csc.nzval[reduced_nzs]
+    #solver.offdiag_matrix.nzval .= solver.csc.nzval[offdiag_nzs]
 
     # The KKT matrix is:
     # | A B^T |
@@ -223,17 +289,17 @@ function SchurComplementSolver(
     append!(V, V_BTCB)
     reduced_matrix = SparseArrays.sparse(I, J, V)
 
-    pivot_con_indices = Set(pivot_indices[Int(pivot_dim / 2 + 1):pivot_dim])
-    pivot_nz = findall((Iorig .∈ (pivot_index_set,)) .& (Jorig .∈ (pivot_index_set,)) .& .!(Iorig .== Jorig .& Jorig .∈ (pivot_con_indices,)))
-    # Maps original indices to index in pivot matrix
-    pivot_remap = zeros(dim)
-    pivot_remap[pivot_indices] .= 1:pivot_dim
-    Ipivot = Iorig[pivot_nz]
-    Jpivot = Jorig[pivot_nz]
-    Vpivot = Vorig[pivot_nz]
-    Ipivot = pivot_remap[Ipivot]
-    Jpivot = pivot_remap[Jpivot]
-    pivot_matrix = SparseArrays.sparse(Ipivot, Jpivot, Vpivot, pivot_dim, pivot_dim)
+    #pivot_con_indices = Set(pivot_indices[Int(pivot_dim / 2 + 1):pivot_dim])
+    #pivot_nz = findall((Iorig .∈ (pivot_index_set,)) .& (Jorig .∈ (pivot_index_set,)) .& .!(Iorig .== Jorig .& Jorig .∈ (pivot_con_indices,)))
+    ## Maps original indices to index in pivot matrix
+    #pivot_remap = zeros(dim)
+    #pivot_remap[pivot_indices] .= 1:pivot_dim
+    #Ipivot = Iorig[pivot_nz]
+    #Jpivot = Jorig[pivot_nz]
+    #Vpivot = Vorig[pivot_nz]
+    #Ipivot = pivot_remap[Ipivot]
+    #Jpivot = pivot_remap[Jpivot]
+    #pivot_matrix = SparseArrays.sparse(Ipivot, Jpivot, Vpivot, pivot_dim, pivot_dim)
     #pivot_matrix = csc[P, P]
     # Filter constraint-regularization nonzeros. We assume that our pivot submatrix
     # is always nonsingular, so we never want to regularize it. More importantly,
@@ -242,14 +308,11 @@ function SchurComplementSolver(
     # Calling this function is slow and I don't know why. My best guess is garbage
     # collection.
     #pivot_matrix = remove_diagonal_nonzeros(pivot_matrix, con_reg_indices)
+    #
     # NOTE: We defer evaluation of default_options until this point because MadNLP
     # assumes no dependency among options. This way we call default_options only once
     # we know what PivotSolver was specified as (instead of just calling it on the default
     # PivotSolver (MA27) earlier).
-    #println("Applying options to pivot solver: $(typeof(opt.pivot_solver_opt))")
-    #if opt.pivot_solver_opt !== nothing
-    #    println("N. blocks for BTSolver: $(length(opt.pivot_solver_opt.blocks))")
-    #end
     pivot_solver_opt = something(opt.pivot_solver_opt, MadNLP.default_options(PivotSolver))
     pivot_solver = PivotSolver(pivot_matrix; opt = pivot_solver_opt, logger)
 
@@ -309,7 +372,12 @@ function SchurComplementSolver(
     timer.initialize += time() - t_start
 
     return SchurComplementSolver{FloatType,IntType}(
-        csc, reduced_solver, pivot_solver, pivot_indices, timer
+        csc,
+        reduced_solver,
+        pivot_solver,
+        pivot_indices,
+        timer,
+        pivot_nz,
     )
 end
 
@@ -349,35 +417,37 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     dim = solver.csc.m
     pivot_dim = length(solver.pivot_indices)
     pivot_index_set = Set(solver.pivot_indices)
-    # Update pivot matrix (after filtering constraint regularization nonzeros)
-    _t = time()
-    # The second half of the pivot indices are constraint indices
-    pivot_con_indices = Set(solver.pivot_indices[Int(pivot_dim / 2 + 1):pivot_dim])
-    #dt = time() - _t; println("[$dt] Pivot indices")
-    I, J, V = SparseArrays.findnz(solver.csc)
-    #dt = time() - _t; println("[$dt] findnz")
-    nnz = SparseArrays.nnz(solver.csc)
-    # pivot_nz contains indices of the original matrix's nonzeros
-    pivot_nz = filter(
-        k -> I[k] in pivot_index_set && J[k] in pivot_index_set && !(I[k] == J[k] && J[k] in pivot_con_indices),
-        1:nnz,
-    )
-    #dt = time() - _t; println("[$dt] filter")
-    pivot_remap = zeros(dim)
-    pivot_remap[solver.pivot_indices] .= 1:pivot_dim
-    Ipivot = I[pivot_nz]
-    Jpivot = J[pivot_nz]
-    Vpivot = V[pivot_nz]
-    Ipivot = pivot_remap[Ipivot]
-    Jpivot = pivot_remap[Jpivot]
-    #dt = time() - _t; println("[$dt] extract and remap")
-    updated_pivot_matrix = SparseArrays.sparse(Ipivot, Jpivot, Vpivot, pivot_dim, pivot_dim)
-    #dt = time() - _t; println("[$dt] sparse")
-    #con_reg_indices = collect(Int(pivot_dim / 2 + 1):pivot_dim)
-    #updated_pivot_matrix = remove_diagonal_nonzeros(updated_pivot_matrix, con_reg_indices)
-    solver.pivot_solver.csc.nzval .= updated_pivot_matrix.nzval
-    #dt = time() - _t; println("[$dt] set values")
-    #solver.pivot_solver.csc.nzval .= solver.csc.nzval[pivot_nz]
+    ## Update pivot matrix (after filtering constraint regularization nonzeros)
+    #_t = time()
+    ## The second half of the pivot indices are constraint indices
+    #pivot_con_indices = Set(solver.pivot_indices[Int(pivot_dim / 2 + 1):pivot_dim])
+    ##dt = time() - _t; println("[$dt] Pivot indices")
+    #I, J, V = SparseArrays.findnz(solver.csc)
+    ##dt = time() - _t; println("[$dt] findnz")
+    #nnz = SparseArrays.nnz(solver.csc)
+    ## pivot_nz contains indices of the original matrix's nonzeros
+    #pivot_nz = filter(
+    #    k -> I[k] in pivot_index_set && J[k] in pivot_index_set && !(I[k] == J[k] && J[k] in pivot_con_indices),
+    #    1:nnz,
+    #)
+    ##dt = time() - _t; println("[$dt] filter")
+    #pivot_remap = zeros(dim)
+    #pivot_remap[solver.pivot_indices] .= 1:pivot_dim
+    #Ipivot = I[pivot_nz]
+    #Jpivot = J[pivot_nz]
+    #Vpivot = V[pivot_nz]
+    #Ipivot = pivot_remap[Ipivot]
+    #Jpivot = pivot_remap[Jpivot]
+    ##dt = time() - _t; println("[$dt] extract and remap")
+    #updated_pivot_matrix = SparseArrays.sparse(Ipivot, Jpivot, Vpivot, pivot_dim, pivot_dim)
+    ##dt = time() - _t; println("[$dt] sparse")
+    ##con_reg_indices = collect(Int(pivot_dim / 2 + 1):pivot_dim)
+    ##updated_pivot_matrix = remove_diagonal_nonzeros(updated_pivot_matrix, con_reg_indices)
+    #solver.pivot_solver.csc.nzval .= updated_pivot_matrix.nzval
+    ##dt = time() - _t; println("[$dt] set values")
+
+    # Update pivot matrix.
+    solver.pivot_solver.csc.nzval .= solver.csc.nzval[solver.pivot_nz]
     solver.timer.factorize.update_pivot += time() - t_start
 
     #ma27 = MadNLPHSL.Ma27Solver(solver.pivot_solver.csc; logger = MadNLP.MadNLPLogger())

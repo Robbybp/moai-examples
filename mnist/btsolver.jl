@@ -88,6 +88,15 @@ function BlockTriangularSolver(
         @assert issubset(all_row_indices, expected_indices)
         @assert issubset(all_col_indices, expected_indices)
 
+        # This doesn't break anything, but it's a significant performance hit in the
+        # backsolve for some reason.
+        # ^ Actually I'm not sure about this. The performance hit I'm seeing is a
+        # little hard to pin down.
+        #for (rowb, colb) in blocks
+        #    sort!(rowb)
+        #    sort!(colb)
+        #end
+
         # Sanity check that diagonal blocks are structurally nonsingular
         sparse_diagonal_blocks = map(b -> full_matrix[b...], blocks)
         block_matchings = MathProgIncidence.maximum_matching.(sparse_diagonal_blocks)

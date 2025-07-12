@@ -56,8 +56,8 @@ function make_square_model(nnfile)
     return m, y, formulation
 end
 
-nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
-#nnfile = joinpath("nn-models", "mnist-relu512nodes4layers.pt")
+#nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
+nnfile = joinpath("nn-models", "mnist-relu512nodes4layers.pt")
 image_index = 7
 adversarial_label = 1
 threshold = 0.6
@@ -90,7 +90,7 @@ madnlp_schur = JuMP.optimizer_with_attributes(
 )
 JuMP.set_optimizer(m, madnlp_schur)
 
-PROFILE_ALLOCS = false
+PROFILE_ALLOCS = true
 if PROFILE_ALLOCS
     Profile.Allocs.@profile sample_rate=0.0001 JuMP.optimize!(m)
     #Profile.print()
@@ -106,7 +106,7 @@ if PROFILE_RUNTIME
     PProf.pprof(data, lidict; webport = 62262)
 end
 
-@timev JuMP.optimize!(m)
+#@timev JuMP.optimize!(m)
 
 if false
     println()
