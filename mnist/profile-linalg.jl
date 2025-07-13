@@ -197,13 +197,28 @@ end
     )
     nlp, kkt_system, kkt_matrix = get_kkt(model, Solver=MadNLPHSL.Ma57Solver)
     display(kkt_matrix)
-    #profile_solver(MadNLPHSL.Ma27Solver, kkt_matrix)
-    #profile_solver(MadNLPHSL.Ma27Solver, nnfile; reduced_space = true)
-    @time results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = true)
+
+    pivot_vars, pivot_cons = get_vars_cons(formulation)
+    pivot_indices = get_kkt_indices(model, pivot_vars, pivot_cons)
+    #pivot_indices = sort(pivot_indices)
+    pivot_indices = convert(Vector{Int32}, pivot_indices)
+    blocks = partition_indices_by_layer(model, formulation; indices = pivot_indices)
+    pivot_solver_opt = BlockTriangularOptions(; blocks)
+    opt = SchurComplementOptions(;
+        ReducedSolver = MadNLPHSL.Ma57Solver,
+        PivotSolver = BlockTriangularSolver,
+        pivot_indices = pivot_indices,
+        pivot_solver_opt,
+    )
+
+    #@time results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = true)
+    @time results = profile_solver(SchurComplementSolver, kkt_matrix; opt)
     println(results.timer)
-    results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = true)
+    #results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = true)
+    results = profile_solver(SchurComplementSolver, kkt_matrix; opt)
     println(results.timer)
-    @time results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = false)
+    #@time results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = false)
+    @time results = profile_solver(MadNLPHSL.Ma57Solver, kkt_matrix)
     println(results.timer)
 
     # The following is for examining specific submatrices in the Schur complement construction
