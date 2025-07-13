@@ -97,14 +97,12 @@ mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions
     ReducedSolver::Type
     PivotSolver::Type
     pivot_indices::Vector{INT}
-    #pivot_index_partition::Union{Nothing,Vector{Tuple{Vector{INT},Vector{INT}}}}
     pivot_solver_opt::Union{Nothing,MadNLP.AbstractOptions}
     function SchurComplementOptions(;
         # TODO: Non-third party default subsolver
         ReducedSolver = MadNLPHSL.Ma27Solver,
         PivotSolver = MadNLPHSL.Ma27Solver,
         pivot_indices = Int32[],
-        #pivot_index_partition = nothing,
         # NOTE: If pivot_solver_opt is not specified, we will use
         # default_options(PivotSolver) in the SchurComplementSolver constructor.
         pivot_solver_opt = nothing,
@@ -113,7 +111,6 @@ mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions
             ReducedSolver,
             PivotSolver,
             pivot_indices,
-            #pivot_index_partition,
             pivot_solver_opt,
         )
     end
@@ -127,8 +124,10 @@ struct SchurComplementSolver{T,INT} <: MadNLP.AbstractLinearSolver{T}
     pivot_indices::Vector{INT}
     timer::SchurComplementTimer
 
-    # Index maps required for in-place operations
+    # Intermediate data structures required for in-place operations
     pivot_nz::Vector{INT}
+    B_nzcols::Vector{INT}
+    compressed_intermediate_sol::Matrix{T}
 end
 
 function _sparse_schur(
@@ -271,6 +270,9 @@ function SchurComplementSolver(
     append!(V, V_BTCB)
     reduced_matrix = SparseArrays.sparse(I, J, V)
 
+    # Allocate memory for intermediate solution C^-1 B
+    compressed_intermediate_sol = zeros(FloatType, pivot_dim, length(B_nzcols))
+
     # NOTE: We defer evaluation of default_options until this point because MadNLP
     # assumes no dependency among options. This way we call default_options only once
     # we know what PivotSolver was specified as (instead of just calling it on the default
@@ -291,6 +293,8 @@ function SchurComplementSolver(
         pivot_indices,
         timer,
         pivot_nz,
+        B_nzcols,
+        compressed_intermediate_sol,
     )
 end
 
@@ -339,6 +343,7 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     # Get indices
     dim = solver.csc.n
     reduced_dim = dim - pivot_dim
+    # TODO: Cache reduced indices as well?
     reduced_indices = filter(i -> !(i in pivot_index_set), 1:dim)
 
     P = solver.pivot_indices
@@ -349,11 +354,30 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     # For entries with p<r in the original matrix, we must transpose the indices.
     B = solver.csc[P, R] + solver.csc[R, P]'
 
+    # TODO: Cache A and B and update in-place
+    # I'll have to figure out how to handle B's indices...
+    #solver.A.nzval .= solver.csc.nzval[solver.reduced_nz]
+    #solver.B.nzval .= solver.csc.nzval[solver.offdiag_nz]
+
     t_solve_start = time()
     # Iterate over non-empty columns of B
-    nonempty_cols = filter(j -> B.colptr[j] < B.colptr[j+1], 1:reduced_dim)
+    # TODO: Cache nonempty columns of B
+    #nonempty_cols = filter(j -> B.colptr[j] < B.colptr[j+1], 1:reduced_dim)
+    nonempty_cols = solver.B_nzcols
     B_compressed = B[:, nonempty_cols]
-    compressed_sol = Matrix(B_compressed)
+
+    # TODO: Update compressed_sol in-place
+    solver.compressed_intermediate_sol .= 0.0
+    # I could potentially vectorize this loop
+    for j in 1:length(nonempty_cols)
+        for k in B_compressed.colptr[j]:(B_compressed.colptr[j+1]-1)
+            i = B_compressed.rowval[k]
+            solver.compressed_intermediate_sol[i, j] += B_compressed.nzval[k]
+        end
+    end
+    #compressed_sol = Matrix(B_compressed)
+    compressed_sol = solver.compressed_intermediate_sol
+
     # Backsolve over a matrix of RHSs. Note that this produces dense solutions
     # and relies on local extensions of `MadNLP.solve!`.
     MadNLP.solve!(solver.pivot_solver, compressed_sol)
@@ -366,6 +390,7 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     term2 = SparseArrays.spzeros(reduced_dim, reduced_dim)
     term2[nonempty_cols, nonempty_cols] = compressed_term2
     solver.timer.factorize.multiply += time() - t_multiply_start
+
     # The nonzero storage pattern here is not consistent.
     schur_complement = A - LinearAlgebra.tril(term2)
     schur_lookup = Dict((i, j) => v for (i, j, v) in zip(SparseArrays.findnz(schur_complement)...))

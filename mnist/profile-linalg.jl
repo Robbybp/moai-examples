@@ -201,6 +201,8 @@ end
     #profile_solver(MadNLPHSL.Ma27Solver, nnfile; reduced_space = true)
     @time results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = true)
     println(results.timer)
+    results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = true)
+    println(results.timer)
     @time results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = false)
     println(results.timer)
 
