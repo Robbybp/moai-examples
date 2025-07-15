@@ -127,7 +127,11 @@ struct SchurComplementSolver{T,INT} <: MadNLP.AbstractLinearSolver{T}
     # Intermediate data structures required for in-place operations
     pivot_nz::Vector{INT}
     B_nzcols::Vector{INT}
+    B_compressed::SparseArrays.SparseMatrixCSC{T,INT}
     compressed_intermediate_sol::Matrix{T}
+    #schur_lookup::Dict{Tuple{INT,INT},T}
+    Anz_remap::Vector{INT}
+    BTCBnz_remap::Vector{INT}
 end
 
 function _sparse_schur(
@@ -251,26 +255,85 @@ function SchurComplementSolver(
     B = csc[P, R] + csc[R, P]'
 
     # Allocate a matrix containing all possible nonzeros for the reduced matrix
-    #
-    # Here, we assume this is a dense matrix:
-    #I = IntType[i for i in 1:reduced_dim for j in 1:reduced_dim]
-    #J = IntType[j for i in 1:reduced_dim for j in 1:reduced_dim]
-    #V = FloatType[0.0 for _ in I]
-    #
     # Here, we exploit empty columns in the off-diagonal matrix B to limit possible nonzeros.
     # We assume C^-1 is completely dense.
-    I, J, V = SparseArrays.findnz(A)
+    _t = time()
+    AI, AJ, AV = SparseArrays.findnz(A)
+    A_nnz = SparseArrays.nnz(A)
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] findnz")
     # Columns of B with any entries. These are possible nonzeros of (B^T C^-1 B)
     B_nzcols = filter(i -> B.colptr[i] < B.colptr[i+1], 1:length(R))
+
+    Bcolset = Set(B_nzcols)
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Bcols")
+    AI_in_Bcols = AI .∈ (Bcolset,)
+    AJ_in_Bcols = AJ .∈ (Bcolset,)
+    Anz_in_Bcols_indicator = AI_in_Bcols .& AJ_in_Bcols
+
+    # These are the indices of nonzeros that are or aren't in (B^T C^1 B)
+    Anz_in_Bcols = findall(Anz_in_Bcols_indicator)
+    Anz_notin_Bcols = findall(.!Anz_in_Bcols_indicator)
+    AI_notin_Bcols = AI[Anz_notin_Bcols]
+    AJ_notin_Bcols = AJ[Anz_notin_Bcols]
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Bcol indices")
+
+    #I_BTCB = IntType[i for j in B_nzcols for i in B_nzcols if i >= j]
+    #J_BTCB = IntType[j for j in B_nzcols for i in B_nzcols if i >= j]
     I_BTCB = IntType[i for i in B_nzcols for j in B_nzcols if i >= j]
     J_BTCB = IntType[j for i in B_nzcols for j in B_nzcols if i >= j]
     V_BTCB = FloatType[0.0 for _ in I_BTCB]
-    append!(I, I_BTCB)
-    append!(J, J_BTCB)
-    append!(V, V_BTCB)
-    reduced_matrix = SparseArrays.sparse(I, J, V)
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] BTCB")
+
+    # S is the Schur complement:
+    #   S = A - B^T C^-1 B
+    # These are unique nonzeros coordinates and now must be sorted.
+    BTCB_nnz = length(I_BTCB)
+    SI = vcat(I_BTCB, AI_notin_Bcols)
+    SJ = vcat(J_BTCB, AJ_notin_Bcols)
+    S_nnz = BTCB_nnz + length(Anz_notin_Bcols)
+    SV = zeros(FloatType, S_nnz)
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Alloc-Schur")
+    # Sort by column, then row
+    S_nzperm = sortperm(reduced_dim .* SJ .+ SI)
+    SI = SI[S_nzperm]
+    SJ = SJ[S_nzperm]
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Sort")
+    reduced_matrix = SparseArrays.sparse(SI, SJ, SV)
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Construct Schur CSC")
+    @assert all(reduced_matrix.rowval .== SI)
+
+    # I need to use B_col_remap here to correctly calculate the nonzero indices
+    B_col_remap = zeros(IntType, reduced_dim)
+    B_col_remap[B_nzcols] .= 1:length(B_nzcols)
+
+    # We will update the Schur complement (reduced) matrix with:
+    # solver.reduced_solver.csc.nzval[solver.Anz_remap] .= A.nzval
+    # solver.reduced_solver.csc.nzval[solver.BTCBnz_remap] .= BTCBnz
+
+    Anz_remap = zeros(IntType, A_nnz)
+    # Assign, to positions in the original nonzeros, positions in the combined nonzeros
+    Anz_remap[Anz_notin_Bcols] .= BTCB_nnz .+ (1:length(Anz_notin_Bcols))
+    Anz_remap[Anz_in_Bcols] .= (
+        # This assumes nonzeros of (B^T C^-1 B) are sorted by column first
+        #B_col_remap[AJ[Anz_in_Bcols]] .* (B_col_remap[AJ[Anz_in_Bcols]] .- 1) ./ 2
+        #.+ B_col_remap[AI[Anz_in_Bcols]]
+        #
+        # This assumes nonzeros of (B^T C^-1 B) are sorted by row first
+        B_col_remap[AI[Anz_in_Bcols]] .* (B_col_remap[AI[Anz_in_Bcols]] .- 1) ./ 2
+        .+ B_col_remap[AJ[Anz_in_Bcols]]
+    )
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] original remaps")
+    @assert !any(Anz_remap .== 0)
+    S_nzperm_old_to_new = invperm(S_nzperm)
+    Anz_remap = S_nzperm_old_to_new[Anz_remap]
+    BTCBnz_remap = S_nzperm_old_to_new[1:BTCB_nnz]
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] permuted remaps")
 
     # Allocate memory for intermediate solution C^-1 B
+    IB, JB, VB = SparseArrays.findnz(B)
+    JB = B_col_remap[JB]
+    B_compressed = SparseArrays.sparse(IB, JB, VB, pivot_dim, length(B_nzcols))
+    @assert all(B_compressed.rowval .== IB)
     compressed_intermediate_sol = zeros(FloatType, pivot_dim, length(B_nzcols))
 
     # NOTE: We defer evaluation of default_options until this point because MadNLP
@@ -294,7 +357,11 @@ function SchurComplementSolver(
         timer,
         pivot_nz,
         B_nzcols,
+        B_compressed,
         compressed_intermediate_sol,
+        #schur_lookup,
+        Anz_remap,
+        BTCBnz_remap,
     )
 end
 
@@ -328,6 +395,7 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     solver.timer.factorize.update_pivot += time() - t_start
 
     t_pivot_start = time()
+    #println("FACTORIZING PIVOT MATRIX")
     MadNLP.factorize!(solver.pivot_solver)
     solver.timer.factorize.pivot += time() - t_pivot_start
 
@@ -364,7 +432,9 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     # TODO: Cache nonempty columns of B
     #nonempty_cols = filter(j -> B.colptr[j] < B.colptr[j+1], 1:reduced_dim)
     nonempty_cols = solver.B_nzcols
-    B_compressed = B[:, nonempty_cols]
+    #B_compressed = B[:, nonempty_cols]
+    solver.B_compressed.nzval .= B.nzval
+    B_compressed = solver.B_compressed
 
     # TODO: Update compressed_sol in-place
     solver.compressed_intermediate_sol .= 0.0
@@ -380,6 +450,7 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
 
     # Backsolve over a matrix of RHSs. Note that this produces dense solutions
     # and relies on local extensions of `MadNLP.solve!`.
+    #println("BACKSOLVING TO CONSTRUCT SCHUR COMPLEMENT")
     MadNLP.solve!(solver.pivot_solver, compressed_sol)
 
     solver.timer.factorize.solve += time() - t_solve_start
@@ -387,26 +458,44 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     # While B_compressed is sparse, it may be better to convert to dense here?
     #compressed_term2 = Matrix(B_compressed') * compressed_sol
     compressed_term2 = B_compressed' * compressed_sol
-    term2 = SparseArrays.spzeros(reduced_dim, reduced_dim)
-    term2[nonempty_cols, nonempty_cols] = compressed_term2
+    # Make sure I get a dense matrix back from this multiplication.
+    @assert compressed_term2 isa Matrix
+    #term2 = SparseArrays.spzeros(reduced_dim, reduced_dim)
+    #term2[nonempty_cols, nonempty_cols] = compressed_term2
     solver.timer.factorize.multiply += time() - t_multiply_start
 
-    # The nonzero storage pattern here is not consistent.
-    schur_complement = A - LinearAlgebra.tril(term2)
-    schur_lookup = Dict((i, j) => v for (i, j, v) in zip(SparseArrays.findnz(schur_complement)...))
+    # I need tril(term2) to have a consistent sparsity structure.
+    # How hard would it be to have tril(term2) already allocated?
+    #
+    # For now, I'll store the nonzeros, sorted by (row, col). Then I'll apply
+    # the cached permutation.
+    # I can work on doing this in-place later.
+    #
+    # NOTE: It is critical that the sorting here (e.g., row-then-col) matches
+    # the cached BTCBnz_remap permutation.
+    #I_BTCBnz = [i for j in nonempty_cols for i in nonempty_cols if i >= j]
+    #J_BTCBnz = [j for j in nonempty_cols for i in nonempty_cols if i >= j]
+    I_BTCBnz = [i for i in nonempty_cols for j in nonempty_cols if i >= j]
+    J_BTCBnz = [j for i in nonempty_cols for j in nonempty_cols if i >= j]
+    BTCBnz = [compressed_term2[ipos, jpos] for (ipos, i) in enumerate(nonempty_cols) for (jpos, j) in enumerate(nonempty_cols) if i >= j]
+    BTCB = SparseArrays.sparse(I_BTCBnz, J_BTCBnz, BTCBnz)
 
+    # In-place update without hashing
     t_update_start = time()
-    for j in 1:reduced_dim # Iterate over columns
-        # And over rows appearing in this column
-        for k in solver.reduced_solver.csc.colptr[j]:(solver.reduced_solver.csc.colptr[j+1]-1)
-            i = solver.reduced_solver.csc.rowval[k]
-            solver.reduced_solver.csc.nzval[k] = get(schur_lookup, (i, j), 0.0)
-        end
-    end
+    solver.reduced_solver.csc.nzval .= 0.0
+    #display(solver.reduced_solver.csc)
+    solver.reduced_solver.csc.nzval[solver.Anz_remap] .+= A.nzval
+    solver.reduced_solver.csc.nzval[solver.BTCBnz_remap] .-= BTCBnz
+
+    #display(A)
+    #display(BTCB)
+    #display(solver.reduced_solver.csc)
+
     solver.timer.factorize.update_reduced += time() - t_update_start
     #println("Reduced solver's matrix before factorization:")
     #display(solver.reduced_solver.csc)
     t_reduced_start = time()
+    #println("FACTORIZING SCHUR COMPLEMENT MATRIX")
     MadNLP.factorize!(solver.reduced_solver)
     solver.timer.factorize.reduced += time() - t_reduced_start
     # Potentially, I could pre-compute some matrices that I need for the solve
