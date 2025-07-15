@@ -55,6 +55,17 @@ function LinearAlgebra.lu(bd::BlockDiagonalView; check = true)
     return BlockDiagonalLU(bd.row_partition, bd.col_partition, factors)
 end
 
+# TODO: I want to be able to factorize in-place. However, this may require me to update
+# my BlockDiagonalLU struct.
+#function LinearAlgebra.lu!(lu::BlockDiagonalLU; check = true)
+#    # Update diagonal block matrices
+#    for (i, block) in enumerate(bd.blocks)
+#        block .= bd.matrix[bd.row_partition[i], bd.col_partition[i]]
+#    end
+#    factors = LinearAlgebra.lu.(bd.blocks; check)
+#    return BlockDiagonalLU(bd.row_partition, bd.col_partition, factors)
+#end
+
 function LinearAlgebra.factorize(bd::BlockDiagonalView)
     return LinearAlgebra.lu(bd)
 end
