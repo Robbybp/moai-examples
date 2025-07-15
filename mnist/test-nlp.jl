@@ -10,6 +10,7 @@ import SparseArrays
 using Test
 using Printf
 using Profile, PProf
+import Serialization
 
 include("linalg.jl")
 include("btsolver.jl")
@@ -57,7 +58,12 @@ function make_square_model(nnfile)
 end
 
 #nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
-nnfile = joinpath("nn-models", "mnist-relu512nodes4layers.pt")
+#nnfile = joinpath("nn-models", "mnist-relu512nodes4layers.pt")
+#nnfile = joinpath("nn-models", "mnist-tanh512nodes4layers.pt")
+#nnfile = joinpath("nn-models", "mnist-relu600nodes4layers.pt")
+#nnfile = joinpath("nn-models", "mnist-relu768nodes4layers.pt")
+nnfile = joinpath("nn-models", "mnist-tanh1024nodes4layers.pt")
+#nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
 image_index = 7
 adversarial_label = 1
 threshold = 0.6
@@ -87,6 +93,7 @@ madnlp_schur = JuMP.optimizer_with_attributes(
     "ReducedSolver" => MadNLPHSL.Ma57Solver,
     #"disable_garbage_collector" => true,
     "max_iter" => 10,
+    "print_level" => MadNLP.TRACE,
 )
 JuMP.set_optimizer(m, madnlp_schur)
 
@@ -104,9 +111,14 @@ if PROFILE_RUNTIME
     data, lidict = Profile.retrieve()
     # default is 62261
     PProf.pprof(data, lidict; webport = 62262)
+    open("profdata.bin", "w") do io
+        Serialization.serialize(io, (data, lidict))
+    end
 end
 
 @timev JuMP.optimize!(m)
+
+println(m.moi_backend.optimizer.model.solver.kkt.linear_solver.timer)
 
 if false
     println()

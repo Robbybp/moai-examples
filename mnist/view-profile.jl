@@ -4,7 +4,16 @@ import PProf
 import JuMP
 import MathProgIncidence
 import MathOptAI
-allocdata = open("allocdata.bin", "r") do io
-    return deserialize(io)
+
+PROFILE_ALLOCS = false
+if PROFILE_ALLOCS
+    allocdata = open("allocdata.bin", "r") do io
+        return deserialize(io)
+    end
+    PProf.Allocs.pprof(allocdata; webport = 62260)
+else
+    profdata = open("profdata.bin", "r") do io
+        return deserialize(io)
+    end
+    PProf.pprof(profdata...; webport = 62260)
 end
-PProf.Allocs.pprof(allocdata; webport = 62260)
