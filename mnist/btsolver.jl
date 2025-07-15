@@ -333,6 +333,7 @@ function MadNLP.factorize!(solver::BlockTriangularSolver)
     #println("[$dt] Loop over nonzeros")
     # Note that this allocates new Factorization objects.
     if solver.block_diagonalize
+        # TODO: LinearAlgebra.lu!
         factors = LinearAlgebra.lu.(solver.blockdiagonal_views; check = false)
     else
         factors = LinearAlgebra.lu.(solver.diagonal_block_matrices; check = false)
@@ -452,7 +453,8 @@ function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Matrix)
         for e in edgestart_by_block[b]:edgeend_by_block[b]
             _, j = dag[e]
             local _t = time()
-            rhs_blocks[j] .-= off_diagonal_matrices[e] * rhs_blocks[b]
+            #rhs_blocks[j] .-= off_diagonal_matrices[e] * rhs_blocks[b]
+            LinearAlgebra.mul!(rhs_blocks[j], off_diagonal_matrices[e], rhs_blocks[b], -1.0, 1.0)
             t_multiply_and_subtract += time() - _t
         end
     end
