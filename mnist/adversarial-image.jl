@@ -8,6 +8,7 @@ import MadNLPHSL
 import MadNLPMumps
 import MathOptAI as MOAI
 import MLDatasets
+using Printf
 
 # TODO: make_model function
 # - accepts filename, image index, adversary label, and formulation
@@ -75,6 +76,7 @@ function get_adversarial_model(
     threshold::Float64;
     reduced_space::Bool = false,
 )
+    _t = time()
     # Network is trained so that outputs represent 0-9
     adversarial_target_index = adversarial_label + 1
     predictor = MOAI.PytorchModel(nnfile)
@@ -82,20 +84,24 @@ function get_adversarial_model(
     # TODO: Configurable data dir
     datadir = joinpath("data", "MNIST", "raw")
     test_data = MLDatasets.MNIST(; split = :test, dir = datadir)
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Load MNIST")
 
     length_dim, height_dim = size(test_data[1].features)
     xref = test_data[image_index].features
     target_label = test_data[image_index].targets
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Get target")
 
     println("LABEL FOR IMAGE $(image_index): $(target_label)")
     println("LOADING NN FROM FILE: $nnfile")
     torch = PythonCall.pyimport("torch")
     nn = torch.load(nnfile, weights_only = false)
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Load into pytorch")
     pyinput = torch.tensor(vec(xref))
     pyoutput = nn(pyinput).detach().numpy()
     output = PythonCall.pyconvert(Array, pyoutput)
     # Indices of `output` are 1-indexed, but predictions are 0-indexed
     prediction = argmax(output) - 1
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Get prediction")
     println("NN PREDICTS: $output")
     # How can I make sure my Julia and Python matrices are not transposes of each other?
     # This is really something that should be documented by the packages that convert the
@@ -122,6 +128,7 @@ function get_adversarial_model(
         gray_box = reduced_space,
         hessian = true,
     )
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Add predictor")
     JuMP.@constraint(m, 0.0 .<= y .<= 1.0)
 
     # Minimize 1-norm of deviation from reference image using slack variables
@@ -131,6 +138,7 @@ function get_adversarial_model(
     JuMP.@objective(m, Min, sum(slack_pos .+ slack_neg))
 
     JuMP.@constraint(m, y[adversarial_target_index] >= threshold)
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Construct model")
 
     return m, y, formulation
 end
