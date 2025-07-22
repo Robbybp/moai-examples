@@ -9,8 +9,8 @@ and backsolve. I think this will greatly simplify the process of updating
 values pre-factorization.
 """
 struct BlockDiagonalView
-    matrix::Matrix
-    blocks::Vector{Matrix}
+    matrix::Matrix{Float64}
+    blocks::Vector{Matrix{Float64}}
     row_partition::Vector{Vector{Int}}
     col_partition::Vector{Vector{Int}}
     function BlockDiagonalView(
