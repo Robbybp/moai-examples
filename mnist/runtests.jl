@@ -1,0 +1,5 @@
+include("test-blockdiagonal.jl")
+include("test-btsolver.jl")
+include("test-linalg.jl")
+include("profile-linalg.jl")
+include("test-nlp.jl")
