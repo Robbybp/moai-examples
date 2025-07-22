@@ -62,19 +62,19 @@ end
 #nnfile = joinpath("nn-models", "mnist-tanh512nodes4layers.pt")
 #nnfile = joinpath("nn-models", "mnist-relu600nodes4layers.pt")
 #nnfile = joinpath("nn-models", "mnist-relu768nodes4layers.pt")
-nnfile = joinpath("nn-models", "mnist-tanh1024nodes4layers.pt")
-#nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
+#nnfile = joinpath("nn-models", "mnist-tanh1024nodes4layers.pt")
+nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
 image_index = 7
 adversarial_label = 1
 threshold = 0.6
 _t = time()
-m, y, formulation = make_square_model(nnfile)
-#m, y, formulation = get_adversarial_model(
-#    nnfile,
-#    image_index,
-#    adversarial_label,
-#    threshold,
-#)
+#m, y, formulation = make_square_model(nnfile)
+m, y, formulation = get_adversarial_model(
+    nnfile,
+    image_index,
+    adversarial_label,
+    threshold,
+)
 dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Make model")
 
 variables, constraints = get_vars_cons(formulation)
@@ -82,18 +82,24 @@ pivot_indices = convert(Vector{Int32}, get_kkt_indices(m, variables, constraints
 blocks = partition_indices_by_layer(m, formulation; indices = pivot_indices)
 dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Extract indices")
 
+JuMP.set_start_value.(variables, 0.5)
+
 println("Solving with Schur+BT")
 madnlp_schur = JuMP.optimizer_with_attributes(
     MadNLP.Optimizer,
     "tol" => 1e-6,
+    #"linear_solver" => MadNLPHSL.Ma57Solver,
     "linear_solver" => SchurComplementSolver,
     "pivot_indices" => pivot_indices,
     "PivotSolver" => BlockTriangularSolver,
     "pivot_solver_opt" => BlockTriangularOptions(; blocks),
     "ReducedSolver" => MadNLPHSL.Ma57Solver,
+    #"richardson_tol" => 1.0,
+    #"richardson_acceptable_tol" => 1.0,
+    #"inertia_correction_method" => MadNLP.InertiaIgnore,
     #"disable_garbage_collector" => true,
     "max_iter" => 10,
-    "print_level" => MadNLP.TRACE,
+    #"print_level" => MadNLP.TRACE,
 )
 JuMP.set_optimizer(m, madnlp_schur)
 
