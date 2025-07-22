@@ -15,20 +15,24 @@ mutable struct BlockTriangularSolver <: MadNLP.AbstractLinearSolver{Float64}
     # `csc` is the user's original matrix. We call this `csc` for compatibility with
     # other MadNLP solvers. If this sparse matrix could somehow be a view into another
     # sparse matrix, we wouldn't need to rely on compatible field names.
-    csc::SparseArrays.SparseMatrixCSC
-    full_matrix::SparseArrays.SparseMatrixCSC
-    tril_to_full_view::SubArray
+    csc::SparseArrays.SparseMatrixCSC{Float64,Int32}
+    full_matrix::SparseArrays.SparseMatrixCSC{Float64,Int32}
+    tril_to_full_view::SubArray{Float64}
     blocks::Vector{Tuple{Vector{Int},Vector{Int}}}
 
     # Data structures for factorization
-    diagonal_block_matrices::Vector{Matrix}
+    diagonal_block_matrices::Vector{Matrix{Float64}}
+    # The type here should be fully-specified
     blockdiagonal_views::Vector{BlockDiagonalView}
     # Whether to block-diagonalize the diagonal blocks of the block triangularization.
     # This is set if user-provided blocks are given. (Block diagonalization is redundant
     # otherwise.)
     block_diagonalize::Bool
-    # Untyped because this will store LU or BlockDiagonalLU
-    factors::Vector{Any}
+
+    # TODO: Specify this type
+    #
+    # BlockDiagonalLU should be fully specified. TODO: Parameterize this eventually
+    factors::Vector{Union{LinearAlgebra.LU{Float64,Matrix{Float64},Vector{Int}},BlockDiagonalLU}}
 
     # The following is the minimal data I need for the backsolve
     off_diagonal_nz::Vector{Int}
@@ -43,7 +47,7 @@ mutable struct BlockTriangularSolver <: MadNLP.AbstractLinearSolver{Float64}
     # corresponding to this node's out-edges
     edgestart_by_block::Vector{Int}
     edgeend_by_block::Vector{Int}
-    off_diagonal_matrices::Vector{SparseArrays.SparseMatrixCSC}
+    off_diagonal_matrices::Vector{SparseArrays.SparseMatrixCSC{Float64,Int32}}
 end
 
 MadNLP.input_type(::Type{BlockTriangularSolver}) = :csc
@@ -52,6 +56,8 @@ MadNLP.is_inertia(::BlockTriangularSolver) = false
 # TODO: Print some information about sub-solver?
 MadNLP.introduce(::BlockTriangularSolver) = "BlockTriangularSolver"
 
+# TODO: Parameterize this constructor by FloatType, IntType. This only makes sense
+# once the struct itself is parameterized.
 function BlockTriangularSolver(
     csc::SparseArrays.SparseMatrixCSC;
     opt::BlockTriangularOptions = BlockTriangularOptions(),
@@ -131,7 +137,7 @@ function BlockTriangularSolver(
     end
 
     # This will store LU or BlockDiagonalLU factors
-    factors = Any[]
+    factors = Vector{Union{LinearAlgebra.LU{Float64,Matrix{Float64},Vector{Int}},BlockDiagonalLU}}()
 
     nnz = SparseArrays.nnz(full_matrix)
     I, J, _ = SparseArrays.findnz(full_matrix)

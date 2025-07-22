@@ -98,6 +98,7 @@ mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions
     PivotSolver::Type
     pivot_indices::Vector{INT}
     pivot_solver_opt::Union{Nothing,MadNLP.AbstractOptions}
+    # TODO: Parameterize this constructor by types
     function SchurComplementOptions(;
         # TODO: Non-third party default subsolver
         ReducedSolver = MadNLPHSL.Ma27Solver,

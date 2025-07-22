@@ -43,7 +43,7 @@ end
 struct BlockDiagonalLU
     row_partition::Vector{Vector{Int}}
     col_partition::Vector{Vector{Int}}
-    factors::Vector{LinearAlgebra.LU}
+    factors::Vector{LinearAlgebra.LU{Float64,Matrix{Float64},Vector{Int}}}
 end
 
 function LinearAlgebra.lu(bd::BlockDiagonalView; check = true)
