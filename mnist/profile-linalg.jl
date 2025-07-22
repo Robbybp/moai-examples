@@ -75,7 +75,6 @@ function profile_solver(
         println("Reduced subsolver = $(opt.ReducedSolver)")
         println("Pivot subsolver   = $(opt.PivotSolver)")
     end
-    rhs = ones(kkt_matrix.m)
     t_init_start = time()
     solver = Solver(kkt_matrix; opt)
     t_init = time() - t_init_start
@@ -90,16 +89,21 @@ function profile_solver(
     println("-----------")
     println("initialize: $t_init")
 
-    t_factorize_start = time()
-    MadNLP.factorize!(solver)
-    t_factorize = time() - t_factorize_start
+    t_solve = 0.0
+    t_factorize = 0.0
+    for _ in 1:10
+        t_factorize_start = time()
+        MadNLP.factorize!(solver)
+        t_factorize = time() - t_factorize_start
 
-    t_solve_start = time()
-    MadNLP.solve!(solver, rhs)
-    t_solve = time() - t_solve_start
+        t_solve_start = time()
+        rhs = ones(kkt_matrix.m)
+        MadNLP.solve!(solver, rhs)
+        t_solve = time() - t_solve_start
 
-    println("factorize:  $t_factorize")
-    println("solve:      $t_solve")
+        println("factorize:  $t_factorize")
+        println("solve:      $t_solve")
+    end
     timer = (Solver === SchurComplementSolver) ? solver.timer : nothing
     info = (;
         time = (;
@@ -188,8 +192,8 @@ end
 
     #nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
     #nnfile = joinpath("nn-models", "mnist-relu512nodes4layers.pt")
-    #nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
-    nnfile = joinpath("nn-models", "mnist-tanh1024nodes4layers.pt")
+    nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
+    #nnfile = joinpath("nn-models", "mnist-tanh1024nodes4layers.pt")
     #nnfile = joinpath("nn-models", "mnist-relu1536nodes4layers.pt")
     #nnfile = joinpath("nn-models", "mnist-relu2048nodes4layers.pt")
     #nnfile = joinpath("nn-models", "mnist-tanh2048nodes4layers.pt")
