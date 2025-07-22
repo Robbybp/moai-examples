@@ -244,10 +244,14 @@ function test_mnist_nn_kkt(;
         nnfile, IMAGE_INDEX, ADVERSARIAL_LABEL, THRESHOLD;
         reduced_space = false
     )
+    _t = time()
     nlp, kkt_system, kkt_matrix = get_kkt(model, Solver=MadNLPHSL.Ma57Solver)
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] (Since model build) Get KKT")
 
     pivot_vars, pivot_cons = get_vars_cons(formulation)
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] (Since model build) Get vars/cons")
     pivot_indices = get_kkt_indices(model, pivot_vars, pivot_cons)
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] (Since model build) Get pivot indices")
     pivot_index_set = Set(pivot_indices)
     @assert kkt_matrix.m == kkt_matrix.n
     reduced_indices = filter(i -> !(i in pivot_index_set), 1:kkt_matrix.m)
@@ -279,6 +283,7 @@ function test_mnist_nn_kkt(;
         println("Solve (x$nrhs):  $(res.time.solve)")
         println()
     end
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] (Since model build) Filter NZ")
 
     # Maps indices in the original space to their index in the pivot matrix
     index_remap = Dict((p, i) for (i, p) in enumerate(P))
@@ -298,6 +303,7 @@ function test_mnist_nn_kkt(;
         varindices = [index_remap[i] for i in var_indices_by_layer[l]]
         push!(blocks, (varindices, conindices))
     end
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] (Since model build) Get block indices")
 
     res = _test_matrix(C_full; blocks, nrhs, atol = 1e-5, skiptest = true)
     println("Timing breakdown")
