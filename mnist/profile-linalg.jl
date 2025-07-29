@@ -32,39 +32,6 @@ function precompile_linalg(; Solver=MadNLPHSL.Ma27Solver, schur=true)
     # TODO: Factorize with "baseline solver" in precompile section
 end
 
-if false
-    model, outputs, formulation = get_adversarial_model(
-        nnfile, image_index, adversarial_label, threshold
-    )
-
-    reduced_model, reduced_outputs, reduced_formulation = get_adversarial_model(
-        nnfile, image_index, adversarial_label, threshold;
-        reduced_space = true,
-    )
-
-    nlp, kkt_system, kkt_matrix = get_kkt(model)
-    pivot_vars, pivot_cons = get_vars_cons(formulation)
-    pivot_indices = get_kkt_indices(model, pivot_vars, pivot_cons)
-    #pivot_indices = sort(pivot_indices)
-    pivot_indices = convert(Vector{Int32}, pivot_indices)
-    rhs = ones(kkt_matrix.m)
-    opt = SchurComplementOptions(; pivot_indices)
-    solver = SchurComplementSolver(kkt_matrix; opt)
-
-    display(kkt_matrix)
-
-    NSAMPLES = 1
-    for i in 1:NSAMPLES
-        d = copy(rhs)
-        # If we update values in the KKT system, we need to run the following:
-        #update_kkt!(kkt_system, nlp; x)
-        #MadNLP.build_kkt!(kkt_system)
-        Profile.@profile MadNLP.factorize!(solver)
-        MadNLP.solve!(solver, d)
-    end
-    println(solver.timer)
-end
-
 function profile_solver(
     Solver::Type,
     kkt_matrix::SparseArrays.SparseMatrixCSC;
