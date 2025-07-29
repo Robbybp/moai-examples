@@ -32,43 +32,11 @@ function precompile_linalg(; Solver=MadNLPHSL.Ma27Solver, schur=true)
     # TODO: Factorize with "baseline solver" in precompile section
 end
 
-if false
-    model, outputs, formulation = get_adversarial_model(
-        nnfile, image_index, adversarial_label, threshold
-    )
-
-    reduced_model, reduced_outputs, reduced_formulation = get_adversarial_model(
-        nnfile, image_index, adversarial_label, threshold;
-        reduced_space = true,
-    )
-
-    nlp, kkt_system, kkt_matrix = get_kkt(model)
-    pivot_vars, pivot_cons = get_vars_cons(formulation)
-    pivot_indices = get_kkt_indices(model, pivot_vars, pivot_cons)
-    #pivot_indices = sort(pivot_indices)
-    pivot_indices = convert(Vector{Int32}, pivot_indices)
-    rhs = ones(kkt_matrix.m)
-    opt = SchurComplementOptions(; pivot_indices)
-    solver = SchurComplementSolver(kkt_matrix; opt)
-
-    display(kkt_matrix)
-
-    NSAMPLES = 1
-    for i in 1:NSAMPLES
-        d = copy(rhs)
-        # If we update values in the KKT system, we need to run the following:
-        #update_kkt!(kkt_system, nlp; x)
-        #MadNLP.build_kkt!(kkt_system)
-        Profile.@profile MadNLP.factorize!(solver)
-        MadNLP.solve!(solver, d)
-    end
-    println(solver.timer)
-end
-
 function profile_solver(
     Solver::Type,
     kkt_matrix::SparseArrays.SparseMatrixCSC;
     opt = MadNLP.default_options(Solver),
+    nsamples = 10,
 )
     println("Solver type:    $Solver")
     if Solver === SchurComplementSolver
@@ -86,24 +54,25 @@ function profile_solver(
     # (I need to wait for initialization to see confirmation that I'm using the
     # right solve).
     println(MadNLP.introduce(solver))
+    println("N. samples = $nsamples")
     println("-----------")
     println("initialize: $t_init")
 
     t_solve = 0.0
     t_factorize = 0.0
-    for _ in 1:10
+    for i in 1:nsamples
         t_factorize_start = time()
         MadNLP.factorize!(solver)
-        t_factorize = time() - t_factorize_start
+        t_factorize += time() - t_factorize_start
 
         t_solve_start = time()
-        rhs = ones(kkt_matrix.m)
+        #rhs = ones(kkt_matrix.m)
+        rhs = i .* Vector{Float64}(1:kkt_matrix.m)
         MadNLP.solve!(solver, rhs)
-        t_solve = time() - t_solve_start
-
-        println("factorize:  $t_factorize")
-        println("solve:      $t_solve")
+        t_solve += time() - t_solve_start
     end
+    println("factorize:  $t_factorize")
+    println("solve:      $t_solve")
     timer = (Solver === SchurComplementSolver) ? solver.timer : nothing
     info = (;
         time = (;
@@ -217,13 +186,12 @@ end
         pivot_solver_opt,
     )
 
-    #@time results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = true)
     @time results = profile_solver(SchurComplementSolver, kkt_matrix; opt)
     println(results.timer)
-    #results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = true)
+    # This is often slightly faster the second time we run it. Whether due to
+    # precompilation or lack of overhead from @time, I'm not sure.
     results = profile_solver(SchurComplementSolver, kkt_matrix; opt)
     println(results.timer)
-    #@time results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = false)
     @time results = profile_solver(MadNLPHSL.Ma57Solver, kkt_matrix)
     println(results.timer)
 
