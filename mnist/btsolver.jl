@@ -352,17 +352,13 @@ function MadNLP.factorize!(solver::BlockTriangularSolver)
 
     dt = time() - t0
     #println("[$dt] Loop over nonzeros")
-    # Note that this allocates new Factorization objects.
+    # Note that this allocates new LU objects (although not necessarily new
+    # factor matrices if lu! is used)
     if solver.block_diagonalize
-        # TODO: LinearAlgebra.lu!
-        #
         # Since we're already branching on block_diagonalize, there is no reason my
         # LU needs to have the same API here. I'll start with an API similar to
         # Julia's sparse LU:
         LinearAlgebra.lu!.(solver.factors, solver.blockdiagonal_views; check = false)
-        # ^ Will solver.factors::Union be a problem here?
-        #factors = LinearAlgebra.lu.(solver.blockdiagonal_views; check = false)
-        #solver.factors = factors
     else
         factors = LinearAlgebra.lu.(solver.diagonal_block_matrices; check = false)
         solver.factors = factors
