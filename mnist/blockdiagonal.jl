@@ -40,11 +40,19 @@ function connected_components(matrix::Matrix)
     return rowcc, colcc
 end
 
-struct BlockDiagonalLU
+# This is mutable so I can update `factors` in-place. I can't update these
+# in-place with lu! because I'm using dense matrices (and LinearAlgebra
+# seems not to support this).
+# TODO: Use sparse matrices so I can use lu!(UmfpackLU, CSC)
+mutable struct BlockDiagonalLU
     row_partition::Vector{Vector{Int}}
     col_partition::Vector{Vector{Int}}
     factors::Vector{LinearAlgebra.LU{Float64,Matrix{Float64},Vector{Int}}}
 end
+
+# Method to instantiate an "empty" BlockDiagonalLU. `factors` is empty because
+# we can't reuse these with lu! unless we switch to using sparse matrices.
+BlockDiagonalLU(bd::BlockDiagonalView) = BlockDiagonalLU(bd.row_partition, bd.col_partition, [])
 
 function LinearAlgebra.lu(bd::BlockDiagonalView; check = true)
     # Update diagonal block matrices
@@ -53,6 +61,17 @@ function LinearAlgebra.lu(bd::BlockDiagonalView; check = true)
     end
     factors = LinearAlgebra.lu.(bd.blocks; check)
     return BlockDiagonalLU(bd.row_partition, bd.col_partition, factors)
+end
+
+function LinearAlgebra.lu!(lu::BlockDiagonalLU, bd::BlockDiagonalView; check = true)
+    # Update diagonal block matrices
+    for (i, block) in enumerate(bd.blocks)
+        block .= bd.matrix[bd.row_partition[i], bd.col_partition[i]]
+    end
+    # This overwrites block matrices, but not the original matrix.
+    factors = LinearAlgebra.lu!.(bd.blocks; check)
+    lu.factors = factors
+    return lu
 end
 
 # TODO: I want to be able to factorize in-place. However, this may require me to update
