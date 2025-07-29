@@ -24,3 +24,6 @@ NLPModelsJuMP = "792afdf1-32c1-5681-94e0-d7bf7a5df49e"
 PProf = "e4faabce-9ead-11e9-39d9-4379958e3056"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 PythonCall = "6099a3de-0909-46bc-b1f4-468b9a2dfc0d"
+
+[compat]
+MathProgIncidence = "0.3"
