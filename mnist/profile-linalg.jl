@@ -69,6 +69,7 @@ function profile_solver(
     Solver::Type,
     kkt_matrix::SparseArrays.SparseMatrixCSC;
     opt = MadNLP.default_options(Solver),
+    nsamples = 10,
 )
     println("Solver type:    $Solver")
     if Solver === SchurComplementSolver
@@ -86,24 +87,25 @@ function profile_solver(
     # (I need to wait for initialization to see confirmation that I'm using the
     # right solve).
     println(MadNLP.introduce(solver))
+    println("N. samples = $nsamples")
     println("-----------")
     println("initialize: $t_init")
 
     t_solve = 0.0
     t_factorize = 0.0
-    for _ in 1:10
+    for i in 1:nsamples
         t_factorize_start = time()
         MadNLP.factorize!(solver)
-        t_factorize = time() - t_factorize_start
+        t_factorize += time() - t_factorize_start
 
         t_solve_start = time()
-        rhs = ones(kkt_matrix.m)
+        #rhs = ones(kkt_matrix.m)
+        rhs = i .* Vector{Float64}(1:kkt_matrix.m)
         MadNLP.solve!(solver, rhs)
-        t_solve = time() - t_solve_start
-
-        println("factorize:  $t_factorize")
-        println("solve:      $t_solve")
+        t_solve += time() - t_solve_start
     end
+    println("factorize:  $t_factorize")
+    println("solve:      $t_solve")
     timer = (Solver === SchurComplementSolver) ? solver.timer : nothing
     info = (;
         time = (;
@@ -217,13 +219,12 @@ end
         pivot_solver_opt,
     )
 
-    #@time results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = true)
     @time results = profile_solver(SchurComplementSolver, kkt_matrix; opt)
     println(results.timer)
-    #results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = true)
+    # This is often slightly faster the second time we run it. Whether due to
+    # precompilation or lack of overhead from @time, I'm not sure.
     results = profile_solver(SchurComplementSolver, kkt_matrix; opt)
     println(results.timer)
-    #@time results = profile_solver(MadNLPHSL.Ma57Solver, nnfile; schur = false)
     @time results = profile_solver(MadNLPHSL.Ma57Solver, kkt_matrix)
     println(results.timer)
 
