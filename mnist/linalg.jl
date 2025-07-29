@@ -367,10 +367,10 @@ end
 
 function MadNLP.introduce(solver::SchurComplementSolver)
     rsolvername = MadNLP.introduce(solver.reduced_solver)
-    ssolvername = MadNLP.introduce(solver.pivot_solver)
+    psolvername = MadNLP.introduce(solver.pivot_solver)
     pivot_dim = length(solver.pivot_indices)
     return (
-        "A Schur-complement solver with reduced subsolver $(rsolvername) and Schur subsolver $(ssolvername)"
+        "A Schur-complement solver with reduced-space subsolver $(rsolvername) and pivot subsolver $(psolvername)"
         * " operating on a pivot of size $(pivot_dim)x$(pivot_dim)"
     )
 end
