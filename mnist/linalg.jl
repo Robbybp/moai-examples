@@ -120,7 +120,11 @@ end
 struct SchurComplementSolver{T,INT} <: MadNLP.AbstractLinearSolver{T}
     csc::SparseArrays.SparseMatrixCSC{T,INT}
     reduced_solver::MadNLP.AbstractLinearSolver{T}
+    # Specifying these a bit further didn't really help
+    #reduced_solver::Union{MadNLPHSL.Ma27Solver{T,INT},MadNLPHSL.Ma57Solver{T,INT}}
     pivot_solver::MadNLP.AbstractLinearSolver{T}
+    #pivot_solver::Union{MadNLPHSL.Ma27Solver{T,INT},MadNLPHSL.Ma57Solver{T,INT},BlockTriangularSolver}
+
     # These are indices on which we pivot rows and columns.
     pivot_indices::Vector{INT}
     timer::SchurComplementTimer
@@ -133,6 +137,15 @@ struct SchurComplementSolver{T,INT} <: MadNLP.AbstractLinearSolver{T}
     #schur_lookup::Dict{Tuple{INT,INT},T}
     Anz_remap::Vector{INT}
     BTCBnz_remap::Vector{INT}
+end
+
+function get_matrix(
+    solver::SchurComplementSolver{T,INT}
+)::SparseArrays.SparseMatrixCSC{T,INT} where {T,INT}
+    return solver.csc
+end
+function get_matrix(solver::MadNLP.AbstractLinearSolver{T})::SparseArrays.SparseMatrixCSC{T,Int32} where {T}
+    return solver.csc
 end
 
 function _sparse_schur(
@@ -378,8 +391,6 @@ end
 
 function MadNLP.factorize!(solver::SchurComplementSolver)
     # Assume csc.nzval has changed since the last call.
-    # - Pivot matrix should be constructed with a view into csc.nzval, and therefore
-    #   shouldn't need any manual update
     # - Reduced matrix will need to be recomputed, using the factorization of the
     #   pivot matrix
     # - Once the reduced matrix is computed, it needs to be loaded into the solver
@@ -389,10 +400,14 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
 
     # Update nonzero values in the pivot solver
     t_start = time()
-    dim = solver.csc.m
+    csc = get_matrix(solver)
+    pivot_csc = get_matrix(solver.pivot_solver)
+    reduced_csc = get_matrix(solver.reduced_solver)
+
+    dim = csc.m
     pivot_dim = length(solver.pivot_indices)
     pivot_index_set = Set(solver.pivot_indices)
-    solver.pivot_solver.csc.nzval .= solver.csc.nzval[solver.pivot_nz]
+    pivot_csc.nzval .= csc.nzval[solver.pivot_nz]
     solver.timer.factorize.update_pivot += time() - t_start
 
     t_pivot_start = time()
@@ -410,7 +425,6 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     # The Schur complement WRT C is (A - B^T C^-1 B)
 
     # Get indices
-    dim = solver.csc.n
     reduced_dim = dim - pivot_dim
     # TODO: Cache reduced indices as well?
     reduced_indices = filter(i -> !(i in pivot_index_set), 1:dim)
@@ -418,15 +432,16 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     P = solver.pivot_indices
     R = reduced_indices
 
-    A = solver.csc[R, R]
+    A = csc[R, R]
     # We need the off-diagonal block in the *permuted* matrix.
+    # We are given the lower triangle of the *original* matrix.
     # For entries with p<r in the original matrix, we must transpose the indices.
-    B = solver.csc[P, R] + solver.csc[R, P]'
+    B = csc[P, R] + csc[R, P]'
 
     # TODO: Cache A and B and update in-place
     # I'll have to figure out how to handle B's indices...
-    #solver.A.nzval .= solver.csc.nzval[solver.reduced_nz]
-    #solver.B.nzval .= solver.csc.nzval[solver.offdiag_nz]
+    #solver.A.nzval .= csc.nzval[solver.reduced_nz]
+    #solver.B.nzval .= csc.nzval[solver.offdiag_nz]
 
     t_solve_start = time()
     # Iterate over non-empty columns of B
@@ -483,18 +498,18 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
 
     # In-place update without hashing
     t_update_start = time()
-    solver.reduced_solver.csc.nzval .= 0.0
+    reduced_csc.nzval .= 0.0
     #display(solver.reduced_solver.csc)
-    solver.reduced_solver.csc.nzval[solver.Anz_remap] .+= A.nzval
-    solver.reduced_solver.csc.nzval[solver.BTCBnz_remap] .-= BTCBnz
+    reduced_csc.nzval[solver.Anz_remap] .+= A.nzval
+    reduced_csc.nzval[solver.BTCBnz_remap] .-= BTCBnz
 
     #display(A)
     #display(BTCB)
-    #display(solver.reduced_solver.csc)
+    #display(reduced_csc)
 
     solver.timer.factorize.update_reduced += time() - t_update_start
     #println("Reduced solver's matrix before factorization:")
-    #display(solver.reduced_solver.csc)
+    #display(reduced_csc)
     t_reduced_start = time()
     #println("FACTORIZING SCHUR COMPLEMENT MATRIX")
     MadNLP.factorize!(solver.reduced_solver)

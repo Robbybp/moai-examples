@@ -59,6 +59,8 @@ MadNLP.is_inertia(::BlockTriangularSolver) = false
 # TODO: Print some information about sub-solver?
 MadNLP.introduce(::BlockTriangularSolver) = "BlockTriangularSolver"
 
+get_matrix(solver::BlockTriangularSolver)::SparseArrays.SparseMatrixCSC{Float64,Int32} = solver.csc
+
 # TODO: Parameterize this constructor by FloatType, IntType. This only makes sense
 # once the struct itself is parameterized.
 function BlockTriangularSolver(
