@@ -272,8 +272,6 @@ function test_mnist_nn_kkt(;
     V = V[to_retain]
     C = SparseArrays.sparse(I, J, V, C_orig.m, C_orig.n)
     C_full = fill_upper_triangle(C)
-    # We skip the test as there is a significant amount of error for these relatively
-    # large systems.
     if !skip_auto_btf
         res = _test_matrix(C_full; nrhs, atol = 1e-5, skiptest = true)
         println("Timing breakdown")
@@ -305,6 +303,10 @@ function test_mnist_nn_kkt(;
     end
     dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] (Since model build) Get block indices")
 
+    # We skip the test-against-baseline as there is a significant amount of error for
+    # these relatively large systems.
+    # NOTE: This might be better now that I'm initializing the intermediate variables.
+    # TODO: Revisit this
     res = _test_matrix(C_full; blocks, nrhs, atol = 1e-5, skiptest = true)
     println("Timing breakdown")
     println("----------------")
@@ -314,7 +316,7 @@ function test_mnist_nn_kkt(;
     println()
 end
 
-@testset begin
+@testset "block-triangular" begin
     test_3x3_lt()
     test_3x3_lt_unsym_perm()
     test_4x4_blt()

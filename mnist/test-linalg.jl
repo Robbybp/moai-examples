@@ -239,7 +239,7 @@ function test_timer()
     @test solver.timer.solve > 0.0
 end
 
-@testset begin
+@testset "schur-complement" begin
     if true
         test_timer()
         test_factorize_nominal_tiny()
