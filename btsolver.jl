@@ -175,6 +175,7 @@ function BlockTriangularSolver(
     off_diagonal_nz = filter(k -> rowblock_by_nz[k] != colblock_by_nz[k], 1:nnz)
     nnz_offdiag = length(off_diagonal_nz)
 
+    # We represent the DAG as an edgelist.
     # In our DAG, column blocks are source nodes and row blocks are destination
     # nodes.
     # TODO: Does this get faster if I store source and destination nodes in
@@ -196,8 +197,7 @@ function BlockTriangularSolver(
     off_diagonal_nzperm = sortperm(blockidx_by_nz)
     sorted_I = I[off_diagonal_nz][off_diagonal_nzperm]
     sorted_J = J[off_diagonal_nz][off_diagonal_nzperm]
-
-    # Can I just iterate over sorted_I/J directly here?
+    # These are the offsets of each row/column index within its block
     local_I = map(i -> row_block_map[i][2], sorted_I)
     local_J = map(j -> col_block_map[j][2], sorted_J)
 
@@ -263,48 +263,6 @@ function BlockTriangularSolver(
         edgeend_by_block,
         off_diagonal_matrices,
     )
-end
-
-function factorize!(matrix::Matrix)
-    if matrix.size[1] == 1
-        # Do nothing
-    elseif matrix.size[1] == 2
-        # We update the 2x2 matrix to store its LU factors
-        # 
-        # | a11 a12 | = | l11     | | 1 u12 |
-        # | a21 a22 |   | l21 l22 | |    1  |
-        #
-        # l11 = a11
-        # u12 = a12 / l11
-        # l21 = a21
-        # l22 = a22 - l21 * u12
-        #
-        # We store:
-        # | l11 u12 |
-        # | l21 l22 |
-        matrix[1, 2] /= matrix[1, 1]
-        matrix[2, 2] -= matrix[2, 1] * matrix[1, 2]
-    else
-        error()
-    end
-    return
-end
-
-"""
-Arguments
----------
-
-* matrices: A 3-dimensional array containing n 2x2 matrices, where
-            n is the dimension of the last axis.
-
-"""
-function factorize_d2!(matrices::Array{Float64,3})
-#function factorize_d2!(matrices::Vector{Matrix{Float64}})
-    matrices[1, 2, :] ./= matrices[1, 1, :]
-    matrices[2, 2, :] .-= matrices[2, 1, :] .* matrices[1, 2, :]
-    #matrices[:][1, 2] ./= matrices[:][1, 1]
-    #matrices[:][2, 2] .-= matrices[:][2, 1] .* matrices[:][1, 2]
-    return
 end
 
 function MadNLP.factorize!(solver::BlockTriangularSolver)
@@ -375,38 +333,6 @@ function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Vector)
     return MadNLP.solve!(solver, rhs)
 end
 
-function solve!(lu::Matrix{Float64}, rhs)
-    # Note that we hit errors here if there's a divide-by-zero due to a bad pivot.
-    # That may not be ideal...
-    if lu.size[1] == 1
-        rhs ./= lu[1, 1]
-    elseif lu.size[1] == 2
-        # lu stores both the L and U factors.
-        #
-        # lu = | l11 u12 |
-        #      | l21 l22 |
-        #
-        # Our LU decomposition solves the following equations:
-        #   
-        #   l11 y1 = b1           (y1)
-        #   l21 y1 + l22 y2 = b2  (y2)
-        #   x2 = y2               (x2)
-        #   x1 + u21 x2 = y1      (x1)
-        #
-        # Which is accomplished with the following in-place operations on RHS:
-        #
-        #   b1 <- ( b1 / l11         )
-        #   b2 <- ( (b2 - l21) / l22 )
-        #   b1 <- ( b1 - u21) b2     )
-        #
-        rhs[1, :] .= rhs[1, :] ./ lu[1, 1]
-        rhs[2, :] .= (rhs[2, :] .- lu[2, 1] .* rhs[1, :]) ./ lu[2, 2]
-        rhs[1, :] .= rhs[1, :] - lu[1, 2] .* rhs[2, :]
-    else
-        error("Only diagonal blocks up to 2x2 are supported")
-    end
-end
-
 function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Matrix)
     _t = time()
     csc = solver.full_matrix
@@ -414,14 +340,6 @@ function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Matrix)
     factors = solver.factors
     nblock = length(blocks)
     nnz = SparseArrays.nnz(csc)
-
-    # These are no longer necessary to update RHS in-place. See below.
-    #row_perm = [i for (rb, cb) in blocks for i in rb]
-    #col_perm = [j for (rb, cb) in blocks for j in cb]
-    #inv_col_perm = zeros(Int64, csc.n)
-    #for (i, j) in enumerate(col_perm)
-    #    inv_col_perm[j] = i
-    #end
 
     # We partition the RHS by row blocks of the original matrix
     rhs_blocks = map(b -> rhs[b[1], :], blocks)

@@ -209,11 +209,10 @@ function SchurComplementSolver(
     csc::SparseArrays.SparseMatrixCSC{T,INT};
     opt::SchurComplementOptions = SchurComplementOptions(),
     logger::MadNLP.MadNLPLogger = MadNLP.MadNLPLogger(),
-    # TODO: Remove all these unnecessary options
-    ReducedSolver::Type = opt.ReducedSolver,
-    PivotSolver::Type = opt.PivotSolver,
-    pivot_indices::Vector{INT} = opt.pivot_indices,
 ) where {T,INT}
+    ReducedSolver = opt.ReducedSolver
+    PivotSolver = opt.PivotSolver
+    pivot_indices = opt.pivot_indices
     FloatType = eltype(csc.nzval)
     IntType = eltype(csc.rowval)
     timer = SchurComplementTimer()
@@ -231,7 +230,9 @@ function SchurComplementSolver(
     # If parts of the upper triangle are provided, our Schur complement below
     # will be incorrect.
     @assert all(Iorig .>= Jorig)
-    # Make sure the original matrix contains no duplicates
+    # Make sure the original matrix contains no duplicates.
+    # I forget why this is necessary, but I think it has something to do with
+    # extracting indices to update the reduced and pivot matrices.
     # COO has no duplicates:
     @assert length(Set(zip(Iorig, Jorig))) == length(Iorig)
     # CSC has same number of duplicates as COO:
@@ -246,12 +247,12 @@ function SchurComplementSolver(
     I_is_pivot_nz = Iorig .∈ (pivot_index_set,)
     J_is_pivot_nz = Jorig .∈ (pivot_index_set,)
     # By convention, the second half of pivot indices correspond to constraints.
-    # This better be true even after we sort the pivot indices...
     pivot_con_indices = Set(pivot_indices[Int(pivot_dim / 2 + 1):pivot_dim])
     is_pivot_con_diagonal = (Iorig .== Jorig) .& (Jorig .∈ (pivot_con_indices,))
     pivot_nz = findall(I_is_pivot_nz .& J_is_pivot_nz .& .!is_pivot_con_diagonal)
     reduced_nz = findall(.!I_is_pivot_nz .& .!J_is_pivot_nz)
     offdiag_nz = findall(I_is_pivot_nz .⊻ J_is_pivot_nz)
+    # This no longer holds because I filter out constraint regularization nonzeros.
     #@assert length(pivot_nz) + length(reduced_nz) + length(offdiag_nz) == nnz
 
     # I have the indices of the nzval for each submatrix.
@@ -272,11 +273,6 @@ function SchurComplementSolver(
     # If I don't sort nonzeros by column, I expect this to fail
     @assert all(Ipivot .== pivot_matrix.rowval)
     @assert all(Ipivot .>= Jpivot)
-
-    # I will eventually run the following code to update the nonzeros:
-    #solver.pivot_solver.csc.nzval .= solver.csc.nzval[pivot_nzs]
-    #solver.reduced_solver.csc.nzval .= solver.csc.nzval[reduced_nzs]
-    #solver.offdiag_matrix.nzval .= solver.csc.nzval[offdiag_nzs]
 
     # The KKT matrix is:
     # | A B^T |
@@ -299,7 +295,6 @@ function SchurComplementSolver(
     dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] findnz")
     # Columns of B with any entries. These are possible nonzeros of (B^T C^-1 B)
     B_nzcols = filter(i -> B.colptr[i] < B.colptr[i+1], 1:length(R))
-
     Bcolset = Set(B_nzcols)
     dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Bcols")
     AI_in_Bcols = AI .∈ (Bcolset,)
@@ -313,6 +308,7 @@ function SchurComplementSolver(
     AJ_notin_Bcols = AJ[Anz_notin_Bcols]
     dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Bcol indices")
 
+    # I was experimenting with changing the ordering here...
     #I_BTCB = IntType[i for j in B_nzcols for i in B_nzcols if i >= j]
     #J_BTCB = IntType[j for j in B_nzcols for i in B_nzcols if i >= j]
     I_BTCB = IntType[i for i in B_nzcols for j in B_nzcols if i >= j]
@@ -336,6 +332,7 @@ function SchurComplementSolver(
     dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Sort")
     reduced_matrix = SparseArrays.sparse(SI, SJ, SV)
     dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Construct Schur CSC")
+    # If this fails, nonzeros have been reordered
     @assert all(reduced_matrix.rowval .== SI)
 
     # I need to use B_col_remap here to correctly calculate the nonzero indices
@@ -343,8 +340,8 @@ function SchurComplementSolver(
     B_col_remap[B_nzcols] .= 1:length(B_nzcols)
 
     # We will update the Schur complement (reduced) matrix with:
-    # solver.reduced_solver.csc.nzval[solver.Anz_remap] .= A.nzval
-    # solver.reduced_solver.csc.nzval[solver.BTCBnz_remap] .= BTCBnz
+    # solver.reduced_solver.csc.nzval[solver.Anz_remap] .+= A.nzval
+    # solver.reduced_solver.csc.nzval[solver.BTCBnz_remap] .-= BTCBnz
 
     Anz_remap = zeros(IntType, A_nnz)
     # Assign, to positions in the original nonzeros, positions in the combined nonzeros
@@ -373,13 +370,13 @@ function SchurComplementSolver(
     compressed_intermediate_sol = zeros(FloatType, pivot_dim, length(B_nzcols))
 
     # NOTE: We defer evaluation of default_options until this point because MadNLP
-    # assumes no dependency among options. This way we call default_options only once
+    # assumes no dependency among options. This way we call default_options only after
     # we know what PivotSolver was specified as (instead of just calling it on the default
     # PivotSolver (MA27) earlier).
     pivot_solver_opt = something(opt.pivot_solver_opt, MadNLP.default_options(PivotSolver))
     pivot_solver = PivotSolver(pivot_matrix; opt = pivot_solver_opt, logger)
 
-    # TODO: Allow passing options to subsolver
+    # TODO: Allow passing options to reduced solver
     reduced_solver = ReducedSolver(reduced_matrix; logger)
 
     #println("Time spend initializing: $(time() - t_start)")
@@ -413,12 +410,11 @@ end
 
 function MadNLP.factorize!(solver::SchurComplementSolver)
     # Assume csc.nzval has changed since the last call.
+    # - Update pivot matrix directly from original matrix's nzval
     # - Reduced matrix will need to be recomputed, using the factorization of the
     #   pivot matrix
     # - Once the reduced matrix is computed, it needs to be loaded into the solver
     #   that uses it.
-    # - To compute the reduced matrix, we will extract coordinates directly from
-    #   the original matrix, csc, which have been updated.
 
     # Update nonzero values in the pivot solver
     t_start = time()
@@ -448,6 +444,7 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     # P) | B  C  |
     #
     # The Schur complement WRT C is (A - B^T C^-1 B)
+    # C is the "pivot matrix"
 
     # Get indices
     reduced_dim = dim - pivot_dim
@@ -470,14 +467,11 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
 
     t_solve_start = time()
     # Iterate over non-empty columns of B
-    # TODO: Cache nonempty columns of B
-    #nonempty_cols = filter(j -> B.colptr[j] < B.colptr[j+1], 1:reduced_dim)
     nonempty_cols = solver.B_nzcols
-    #B_compressed = B[:, nonempty_cols]
     solver.B_compressed.nzval .= B.nzval
     B_compressed = solver.B_compressed
 
-    # TODO: Update compressed_sol in-place
+    # This stores the solution to C^-1 B. The memory is pre-allocated.
     solver.compressed_intermediate_sol .= 0.0
     # I could potentially vectorize this loop
     for j in 1:length(nonempty_cols)
@@ -486,7 +480,6 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
             solver.compressed_intermediate_sol[i, j] += B_compressed.nzval[k]
         end
     end
-    #compressed_sol = Matrix(B_compressed)
     compressed_sol = solver.compressed_intermediate_sol
 
     # Backsolve over a matrix of RHSs. Note that this produces dense solutions
@@ -498,12 +491,11 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     solver.timer.factorize.solve += time() - t_solve_start
     t_multiply_start = time()
     # While B_compressed is sparse, it may be better to convert to dense here?
+    # ^ Not in any benchmark I have done.
     #compressed_term2 = Matrix(B_compressed') * compressed_sol
     compressed_term2 = B_compressed' * compressed_sol
     # Make sure I get a dense matrix back from this multiplication.
     @assert compressed_term2 isa Matrix
-    #term2 = SparseArrays.spzeros(reduced_dim, reduced_dim)
-    #term2[nonempty_cols, nonempty_cols] = compressed_term2
     solver.timer.factorize.multiply += time() - t_multiply_start
 
     # I need tril(term2) to have a consistent sparsity structure.
@@ -520,7 +512,7 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     I_BTCBnz = [i for i in nonempty_cols for j in nonempty_cols if i >= j]
     J_BTCBnz = [j for i in nonempty_cols for j in nonempty_cols if i >= j]
     BTCBnz = [compressed_term2[ipos, jpos] for (ipos, i) in enumerate(nonempty_cols) for (jpos, j) in enumerate(nonempty_cols) if i >= j]
-    BTCB = SparseArrays.sparse(I_BTCBnz, J_BTCBnz, BTCBnz)
+    #BTCB = SparseArrays.sparse(I_BTCBnz, J_BTCBnz, BTCBnz)
 
     # In-place update without hashing
     t_update_start = time()
@@ -551,6 +543,7 @@ end
 function MadNLP.is_inertia(solver::SchurComplementSolver)
     # We already know the inertia for the Schur system
     return MadNLP.is_inertia(solver.reduced_solver)
+    # If we use the Haynsworth formula:
     #return MadNLP.is_inertia(solver.reduced_solver) && MadNLP.is_inertia(solver.pivot_solver)
 end
 
@@ -558,7 +551,7 @@ function MadNLP.inertia(solver::SchurComplementSolver)
     reduced_inertia = MadNLP.inertia(solver.reduced_solver)
     pos, zero, neg = reduced_inertia
     # We should be able to prove that the Schur complement system always has inertia
-    # (dim, 0, dim). This is because it is decomposable.
+    # (dim, 0, dim).
     @assert length(solver.pivot_indices) % 2 == 0
     pivot_dim = length(solver.pivot_indices)
     return (pos + Int(pivot_dim/2), zero, neg + Int(pivot_dim/2))
@@ -620,6 +613,7 @@ MadNLP.default_options(::Type{SchurComplementSolver}) = SchurComplementOptions()
 # Parameterize the SchurComplementSolver type by its subsolver types?
 MadNLP.is_supported(::Type{SchurComplementSolver}, ::Type{T}) where T <: AbstractFloat = true
 
+# This is used elsewhere, basically just for inspecting the full, symmetric matrix.
 function fill_upper_triangle(csc::SparseArrays.SparseMatrixCSC)
     I, J, V = SparseArrays.findnz(csc)
     strict_lower = filter(k -> I[k] > J[k], 1:length(I))
@@ -633,6 +627,8 @@ function fill_upper_triangle(csc::SparseArrays.SparseMatrixCSC)
     return new
 end
 
+# This was really slow compared to doing basically the same thing inline above,
+# for some reason...
 function remove_diagonal_nonzeros(
     csc::SparseArrays.SparseMatrixCSC,
     indices::Vector{Int},
