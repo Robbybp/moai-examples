@@ -144,3 +144,6 @@ dominated by type inference (I think?).
 
 I have recently tried using `InteractiveUtils.@code_warntype` to track down type instabilities.
 See the `warntype.jl` script in the `types` branch.
+The first type instabilities I noticed were due to `SchurComplementSolver`'s `pivot_solver`
+and `reduced_solver` fields being subtypes of `AbstractLinearSolver`. I'm not sure if these
+are likely to cause slowdowns, or what I can do about them.
