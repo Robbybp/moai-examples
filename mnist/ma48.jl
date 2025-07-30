@@ -67,7 +67,7 @@ function Ma48Solver(
 
     ICNTL[6] = min_blocksize
 
-    JOB = Int32(1) # Compute a pivot sequence; don't restricti pivoting to diagonal
+    JOB = Int32(1) # Compute a pivot sequence; don't restrict pivoting to diagonal
     M = Int32(csc.m)
     N = Int32(csc.n)
     NE = Int32(SparseArrays.nnz(csc))
@@ -159,7 +159,7 @@ function MadNLP.factorize!(solver::Ma48Solver{T,INT}) where {T,INT}
     )
     # TODO: Check for memory error and factorize in a loop
     if solver.INFO[1] != 0
-        throw(FactorizationException())
+        throw(MadNLP.FactorizationException())
     end
     # TODO: We should just use solver.A directly. This will require allocating
     # the correct amount of memory for A at the end of the constructor above.
