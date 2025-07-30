@@ -99,7 +99,7 @@ madnlp_schur = JuMP.optimizer_with_attributes(
     #"inertia_correction_method" => MadNLP.InertiaIgnore,
     #"disable_garbage_collector" => true,
     "max_iter" => 10,
-    #"print_level" => MadNLP.TRACE,
+    "print_level" => MadNLP.TRACE,
 )
 JuMP.set_optimizer(m, madnlp_schur)
 
