@@ -134,41 +134,6 @@ struct SchurComplementSolver{T,INT} <: MadNLP.AbstractLinearSolver{T}
     BTCBnz_remap::Vector{INT}
 end
 
-function _sparse_schur(
-    csc::SparseArrays.SparseMatrixCSC,
-    pivot_indices::Vector;
-    linear_solver = nothing,
-)
-    dim = csc.n
-    pivot_dim = length(pivot_indices)
-    reduced_dim = dim - pivot_dim
-    pivot_index_set = Set(pivot_indices)
-    reduced_indices = filter(i -> !(i in pivot_index_set), 1:dim)
-    P = pivot_indices
-    R = reduced_indices
-    A = csc[R, R]
-    # We need the off-diagonal block in the *permuted* matrix.
-    # For entries with p<r in the original matrix, we must transpose the indices.
-    B = csc[P, R] + csc[R, P]'
-    C = csc[P, P]
-    B_dense = Matrix(B)
-    sol = copy(B_dense)
-    if linear_solver === nothing
-        linear_solver = MadNLPHSL.Ma27Solver(C)
-        MadNLP.factorize!(linear_solver)
-    end
-    for j in 1:reduced_dim
-        temp = sol[:, j]
-        # view(sol, :, j) isn't working here, even though it seems like it should...
-        MadNLP.solve!(linear_solver, temp)
-        sol[:, j] = temp
-    end
-    # Converting to sparse here removes explicit zeros
-    term2 = B' * SparseArrays.sparse(sol)
-    schur_complement = A - LinearAlgebra.tril(term2)
-    return schur_complement
-end
-
 function SchurComplementSolver(
     csc::SparseArrays.SparseMatrixCSC{T,INT};
     opt::SchurComplementOptions = SchurComplementOptions(),
