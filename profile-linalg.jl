@@ -161,10 +161,10 @@ end
 
     #nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
     #nnfile = joinpath("nn-models", "mnist-relu512nodes4layers.pt")
-    nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
+    #nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
     #nnfile = joinpath("nn-models", "mnist-tanh1024nodes4layers.pt")
     #nnfile = joinpath("nn-models", "mnist-relu1536nodes4layers.pt")
-    #nnfile = joinpath("nn-models", "mnist-relu2048nodes4layers.pt")
+    nnfile = joinpath("nn-models", "mnist-relu2048nodes4layers.pt")
     #nnfile = joinpath("nn-models", "mnist-tanh2048nodes4layers.pt")
     model, outputs, formulation = get_adversarial_model(
         nnfile, IMAGE_INDEX, ADVERSARIAL_LABEL, THRESHOLD;
