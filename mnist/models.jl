@@ -51,11 +51,12 @@ function make_small_nn_model(;
     b2 = rand(output_dim)
     predictor = MOAI.Pipeline(
         MOAI.Affine(A1, b1),
-        MOAI.ReLUQuadratic(; relaxation_parameter = relaxation_parameter),
+        MOAI.ReLUQuadratic(; relaxation_parameter),
         #MOAI.Tanh(),
         MOAI.Affine(A2, b2),
         MOAI.SoftMax(),
     )
+    # TODO: Initialize these variables so the NLP behaves better...
     y, formulation = MOAI.add_predictor(m, predictor, x)
     JuMP.@objective(m, Min, sum(x.^2) + sum(y.^2))
     variables, constraints = get_vars_cons(formulation)

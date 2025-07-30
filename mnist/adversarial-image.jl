@@ -131,6 +131,11 @@ function get_adversarial_model(
     dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Add predictor")
     JuMP.@constraint(m, 0.0 .<= y .<= 1.0)
 
+    # Initialize intermediate variables to 0.5
+    variables, _ = get_vars_cons(formulation)
+    JuMP.set_start_value.(variables, 0.5)
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Initialize intermediate variables")
+
     # Minimize 1-norm of deviation from reference image using slack variables
     JuMP.@variable(m, slack_pos[1:height_dim, 1:length_dim] >= 0.0)
     JuMP.@variable(m, slack_neg[1:height_dim, 1:length_dim] >= 0.0)

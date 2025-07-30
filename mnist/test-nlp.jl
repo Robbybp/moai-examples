@@ -82,8 +82,6 @@ pivot_indices = convert(Vector{Int32}, get_kkt_indices(m, variables, constraints
 blocks = partition_indices_by_layer(m, formulation; indices = pivot_indices)
 dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Extract indices")
 
-JuMP.set_start_value.(variables, 0.5)
-
 println("Solving with Schur+BT")
 madnlp_schur = JuMP.optimizer_with_attributes(
     MadNLP.Optimizer,

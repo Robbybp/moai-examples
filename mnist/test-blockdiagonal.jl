@@ -50,7 +50,7 @@ function test_4x4_blockdiagonal()
     return
 end
 
-@testset begin
+@testset "block-diagonal" begin
     test_3x3_diagonal()
     test_4x4_blockdiagonal()
 end

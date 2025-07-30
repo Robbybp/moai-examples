@@ -29,11 +29,11 @@ function _collect_vars_cons!(
         set = JuMP.MOI.get(con.model, JuMP.MOI.ConstraintSet(), con)
         fcn = JuMP.MOI.get(con.model, JuMP.MOI.ConstraintFunction(), con)
         # For ReLUQuadratic predictors, we include `y*x <= eps` constraints
-        # as well as equality. The the KKT system on which we perform the Schur
+        # as well as equality. The KKT system on which we perform the Schur
         # complement, these will be: `y*x + s - eps == 0`
         if (
-                set isa JuMP.MOI.EqualTo
-                || (fcn isa JuMP.MOI.ScalarQuadraticFunction && set isa JuMP.MOI.LessThan)
+            set isa JuMP.MOI.EqualTo
+            || (fcn isa JuMP.MOI.ScalarQuadraticFunction && set isa JuMP.MOI.LessThan)
         )
             push!(constraints, con)
         end
