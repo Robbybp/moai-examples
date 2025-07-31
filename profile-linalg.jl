@@ -147,6 +147,7 @@ function profile_solver(
 end
 
 
+using Serialization
 #if abspath(PROGRAM_FILE) == @__FILE__
     # TODO: CLI
     # Global data. Unfortunately, we rely on this in profile_solver(Solver, file)
@@ -161,10 +162,10 @@ end
 
     #nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
     #nnfile = joinpath("nn-models", "mnist-relu512nodes4layers.pt")
-    #nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
+    nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
     #nnfile = joinpath("nn-models", "mnist-tanh1024nodes4layers.pt")
     #nnfile = joinpath("nn-models", "mnist-relu1536nodes4layers.pt")
-    nnfile = joinpath("nn-models", "mnist-relu2048nodes4layers.pt")
+    #nnfile = joinpath("nn-models", "mnist-relu2048nodes4layers.pt")
     #nnfile = joinpath("nn-models", "mnist-tanh2048nodes4layers.pt")
     model, outputs, formulation = get_adversarial_model(
         nnfile, IMAGE_INDEX, ADVERSARIAL_LABEL, THRESHOLD;
@@ -216,4 +217,7 @@ end
         println("MadNLP.factorize!(::SchurComplementSolver) Profile:")
         Profile.print()
     end
+
+    matrix_file = joinpath("madnlp-matrices", "iter00.bin")
+    iter0_matrix = open(Serialization.deserialize, matrix_file, "r")
 #end

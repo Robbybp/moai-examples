@@ -170,6 +170,9 @@ function get_matrix(solver::MadNLP.AbstractLinearSolver{T})::SparseArrays.Sparse
     return solver.csc
 end
 
+#import Serialization
+#ITERATION_COUNTER::Int = 0
+
 function SchurComplementSolver(
     csc::SparseArrays.SparseMatrixCSC{T,INT};
     opt::SchurComplementOptions = SchurComplementOptions(),
@@ -202,6 +205,10 @@ function SchurComplementSolver(
     @assert length(Set(zip(Iorig, Jorig))) == length(Iorig)
     # CSC has same number of duplicates as COO:
     @assert length(Vorig) == length(csc.nzval)
+
+    #open(joinpath("madnlp-matrices", "opt.bin"), "w") do io
+    #    Serialization.serialize(io, opt)
+    #end
 
     pivot_index_set = Set(pivot_indices)
     reduced_indices = filter(i -> !(i in pivot_index_set), 1:dim)
@@ -388,6 +395,12 @@ function MadNLP.factorize!(solver::SchurComplementSolver)
     #reduced_csc = get_matrix(solver.reduced_solver)
     pivot_csc = get_pivot_solver_matrix(solver)
     reduced_csc = get_reduced_solver_matrix(solver)
+
+    #iter = ITERATION_COUNTER
+    #open(joinpath("madnlp-matrices", "iter$(@sprintf("%02d", iter)).bin"), "w") do io
+    #    Serialization.serialize(io, csc)
+    #end
+    #global ITERATION_COUNTER += 1
 
     dim = csc.m
     pivot_dim = length(solver.pivot_indices)
