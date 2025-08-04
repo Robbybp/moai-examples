@@ -147,7 +147,7 @@ function profile_solver(
 end
 
 
-#if abspath(PROGRAM_FILE) == @__FILE__
+if abspath(PROGRAM_FILE) == @__FILE__
     # TODO: CLI
     # Global data. Unfortunately, we rely on this in profile_solver(Solver, file)
     IMAGE_INDEX = 7
@@ -216,4 +216,4 @@ end
         println("MadNLP.factorize!(::SchurComplementSolver) Profile:")
         Profile.print()
     end
-#end
+end
