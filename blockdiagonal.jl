@@ -26,20 +26,6 @@ struct BlockDiagonalView
     end
 end
 
-# I might as well add this method to MathProgIncidence
-function connected_components(matrix::Matrix)
-    csc = SparseArrays.sparse(matrix)
-    igraph = MathProgIncidence.IncidenceGraphInterface(csc)
-    rowcc, colcc = MathProgIncidence.connected_components(igraph)
-    # CCs don't have an inherent order, so we give them one based on
-    # the minimum row index. TODO: This should be done by MathProgIncidence
-    ncc = length(rowcc)
-    order = sort(1:ncc; by = i -> minimum(rowcc[i]))
-    rowcc = rowcc[order]
-    colcc = colcc[order]
-    return rowcc, colcc
-end
-
 # This is mutable so I can update the `factors` field in-place.  I can't update
 # the individual factors themselves in-place with lu!  because I'm using dense
 # matrices (and LinearAlgebra seems not to support this). 
