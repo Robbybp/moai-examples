@@ -15,20 +15,27 @@ mutable struct BlockTriangularSolver <: MadNLP.AbstractLinearSolver{Float64}
     # `csc` is the user's original matrix. We call this `csc` for compatibility with
     # other MadNLP solvers. If this sparse matrix could somehow be a view into another
     # sparse matrix, we wouldn't need to rely on compatible field names.
-    csc::SparseArrays.SparseMatrixCSC
-    full_matrix::SparseArrays.SparseMatrixCSC
-    tril_to_full_view::SubArray
+    csc::SparseArrays.SparseMatrixCSC{Float64,Int32}
+    full_matrix::SparseArrays.SparseMatrixCSC{Float64,Int32}
+    tril_to_full_view::SubArray{Float64}
     blocks::Vector{Tuple{Vector{Int},Vector{Int}}}
 
     # Data structures for factorization
-    diagonal_block_matrices::Vector{Matrix}
+    diagonal_block_matrices::Vector{Matrix{Float64}}
+    # The type here should be fully-specified
     blockdiagonal_views::Vector{BlockDiagonalView}
     # Whether to block-diagonalize the diagonal blocks of the block triangularization.
     # This is set if user-provided blocks are given. (Block diagonalization is redundant
     # otherwise.)
     block_diagonalize::Bool
-    # Untyped because this will store LU or BlockDiagonalLU
-    factors::Vector{Any}
+
+    # TODO: Specify this type
+    #
+    # BlockDiagonalLU should be fully specified. TODO: Parameterize this eventually
+    #
+    # TODO: Hard-code this type to BlockDiagonal to see if this makes a difference
+    factors::Vector{Union{LinearAlgebra.LU{Float64,Matrix{Float64},Vector{Int}},BlockDiagonalLU}}
+    #factors::Vector{BlockDiagonalLU}
 
     # The following is the minimal data I need for the backsolve
     off_diagonal_nz::Vector{Int}
@@ -43,7 +50,7 @@ mutable struct BlockTriangularSolver <: MadNLP.AbstractLinearSolver{Float64}
     # corresponding to this node's out-edges
     edgestart_by_block::Vector{Int}
     edgeend_by_block::Vector{Int}
-    off_diagonal_matrices::Vector{SparseArrays.SparseMatrixCSC}
+    off_diagonal_matrices::Vector{SparseArrays.SparseMatrixCSC{Float64,Int32}}
 end
 
 MadNLP.input_type(::Type{BlockTriangularSolver}) = :csc
@@ -52,6 +59,10 @@ MadNLP.is_inertia(::BlockTriangularSolver) = false
 # TODO: Print some information about sub-solver?
 MadNLP.introduce(::BlockTriangularSolver) = "BlockTriangularSolver"
 
+get_matrix(solver::BlockTriangularSolver)::SparseArrays.SparseMatrixCSC{Float64,Int32} = solver.csc
+
+# TODO: Parameterize this constructor by FloatType, IntType. This only makes sense
+# once the struct itself is parameterized.
 function BlockTriangularSolver(
     csc::SparseArrays.SparseMatrixCSC;
     opt::BlockTriangularOptions = BlockTriangularOptions(),
@@ -113,6 +124,13 @@ function BlockTriangularSolver(
     end
     nblock = length(blocks)
     blocksizes = map(b -> length(first(b)), blocks)
+
+    # These are the diagonal blocks in the block *triangularization*.
+    # Note that these are stored as dense matrices. (Sparse matrices become
+    # prohibitively expensive when there are many small diagonal blocks.
+    # The are potentially more efficient for user-provided blocks, but this
+    # is mostly moot because I'm using a block-diagonal decomposition anyway.
+    # Dense matrices also made the implementation of BlockDiagonalView simpler.)
     diagonal_block_matrices = map(b -> zeros(b, b), blocksizes)
     if block_diagonalize
         # Here, we use BlockDiagonalView for all blocks. It may be beneficial to set
@@ -126,12 +144,16 @@ function BlockTriangularSolver(
             ),
             1:nblock,
         )
+        factors = BlockDiagonalLU.(blockdiagonal_views)
     else
         blockdiagonal_views = []
+        factors = Vector{Union{LinearAlgebra.LU{Float64,Matrix{Float64},Vector{Int}},BlockDiagonalLU}}()
     end
 
     # This will store LU or BlockDiagonalLU factors
-    factors = Any[]
+    #factors = Vector{Union{LinearAlgebra.LU{Float64,Matrix{Float64},Vector{Int}},BlockDiagonalLU}}()
+    #
+    # This doesn't allocate the LU struct as we can't re-use it anway.
 
     nnz = SparseArrays.nnz(full_matrix)
     I, J, _ = SparseArrays.findnz(full_matrix)
@@ -162,6 +184,7 @@ function BlockTriangularSolver(
     # but this would likely reduce the amount of indexing elsewhere
     dag = collect(zip(colblock_by_nz, rowblock_by_nz))
     unique!(dag)
+    # Remove self-loops
     filter!(e -> e[1] != e[2], dag)
     # Sorting entries by (colblock, rowblock) puts the edges in topological
     # order (in some sense).
@@ -289,14 +312,17 @@ function MadNLP.factorize!(solver::BlockTriangularSolver)
 
     dt = time() - t0
     #println("[$dt] Loop over nonzeros")
-    # Note that this allocates new Factorization objects.
+    # Note that this allocates new LU objects (although not necessarily new
+    # factor matrices if lu! is used)
     if solver.block_diagonalize
-        # TODO: LinearAlgebra.lu!
-        factors = LinearAlgebra.lu.(solver.blockdiagonal_views; check = false)
+        # Since we're already branching on block_diagonalize, there is no reason my
+        # LU needs to have the same API here. I'll start with an API similar to
+        # Julia's sparse LU:
+        LinearAlgebra.lu!.(solver.factors, solver.blockdiagonal_views; check = false)
     else
         factors = LinearAlgebra.lu.(solver.diagonal_block_matrices; check = false)
+        solver.factors = factors
     end
-    solver.factors = factors
     dt = time() - t0
     #println("[$dt] factorize")
     return
@@ -341,6 +367,7 @@ function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Matrix)
     dt = time() - _t
     #println("[$dt] Update nzval")
 
+    # TODO: Allocate these dense matrices during initialization
     #off_diagonal_matrices = map(m -> Matrix(m), off_diagonal_matrices)
     off_diagonal_matrices = map(
         # Some quick heuristic to switch between sparse and dense
@@ -359,9 +386,8 @@ function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Matrix)
     #println("Entering backsolve loop for $nblock blocks and $nedges edges")
     for b in 1:nblock
         local _t = time()
-        # What ever struct I return from `factorize`, it should support
-        # ldiv!. This way I can return Julia built-in factors as well
-        # if they're convenient and performant.
+        # My BlockDiagonalLU should support ldiv! so this code doesn't need
+        # to change if I switch to LinearAlgebra.LU.
         LinearAlgebra.ldiv!(factors[b], rhs_blocks[b])
         t_solve += time() - _t
         # Look up positions of this node's out-edges in edgelist
@@ -387,8 +413,7 @@ function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Matrix)
     dt = time() - _t
     #println("[$dt] Backsolve")
     for (i, rhs_i) in enumerate(rhs_blocks)
-        #rhs[blocks[i][1], :] .= rhs_i
-        # Is this the same as applying the inverse column permutation?
+        # We apply the inverse column permutation to our solution.
         rhs[blocks[i][2], :] .= rhs_i
     end
     dt = time() - _t
