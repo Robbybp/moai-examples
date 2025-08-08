@@ -1,4 +1,5 @@
 import LinearAlgebra
+import MathProgIncidence as MPIN
 using Test
 
 include("blockdiagonal.jl")
@@ -8,7 +9,7 @@ function _test_matrix(matrix::Matrix; atol = 1e-8, nrhs = 10)
     @assert dim == dim2
     rowscaling = LinearAlgebra.diagm(convert(Vector{Float64}, 1:dim))
     rhs = rowscaling * ones(dim, nrhs)
-    rowcc, colcc = connected_components(matrix)
+    rowcc, colcc = MPIN.connected_components(matrix)
     bd = BlockDiagonalView(matrix, rowcc, colcc)
     lu = LinearAlgebra.lu(bd)
     sol = copy(rhs)

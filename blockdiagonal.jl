@@ -26,24 +26,10 @@ struct BlockDiagonalView
     end
 end
 
-# I might as well add this method to MathProgIncidence
-function connected_components(matrix::Matrix)
-    csc = SparseArrays.sparse(matrix)
-    igraph = MathProgIncidence.IncidenceGraphInterface(csc)
-    rowcc, colcc = MathProgIncidence.connected_components(igraph)
-    # CCs don't have an inherent order, so we give them one based on
-    # the minimum row index. TODO: This should be done by MathProgIncidence
-    ncc = length(rowcc)
-    order = sort(1:ncc; by = i -> minimum(rowcc[i]))
-    rowcc = rowcc[order]
-    colcc = colcc[order]
-    return rowcc, colcc
-end
-
-# This is mutable so I can update `factors` in-place. I can't update these
-# in-place with lu! because I'm using dense matrices (and LinearAlgebra
-# seems not to support this).
-# TODO: Use sparse matrices so I can use lu!(UmfpackLU, CSC)
+# This is mutable so I can update the `factors` field in-place.  I can't update
+# the individual factors themselves in-place with lu!  because I'm using dense
+# matrices (and LinearAlgebra seems not to support this). 
+# TODO: Potentially use sparse matrices so I can use lu!(UmfpackLU, CSC)?
 mutable struct BlockDiagonalLU
     row_partition::Vector{Vector{Int}}
     col_partition::Vector{Vector{Int}}
@@ -73,17 +59,6 @@ function LinearAlgebra.lu!(lu::BlockDiagonalLU, bd::BlockDiagonalView; check = t
     lu.factors = factors
     return lu
 end
-
-# TODO: I want to be able to factorize in-place. However, this may require me to update
-# my BlockDiagonalLU struct.
-#function LinearAlgebra.lu!(lu::BlockDiagonalLU; check = true)
-#    # Update diagonal block matrices
-#    for (i, block) in enumerate(bd.blocks)
-#        block .= bd.matrix[bd.row_partition[i], bd.col_partition[i]]
-#    end
-#    factors = LinearAlgebra.lu.(bd.blocks; check)
-#    return BlockDiagonalLU(bd.row_partition, bd.col_partition, factors)
-#end
 
 function LinearAlgebra.factorize(bd::BlockDiagonalView)
     return LinearAlgebra.lu(bd)

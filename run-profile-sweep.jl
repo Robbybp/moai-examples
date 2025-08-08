@@ -19,10 +19,11 @@ import CSV
 #include("nlpmodels.jl")
 #include("models.jl")
 
+include("pytorch.jl")
 include("profile-linalg.jl")
 
 # TODO: Precompile with different linear solvers
-precompile_linalg()
+precompile_linalg(Solver=MadNLPHSL.Ma57Solver)
 
 # TODO: CLI
 # Global data:
@@ -42,22 +43,57 @@ function run_profile_sweep(;
     profile_params,
 )
     data = []
+    # Cache matrices
+    cache = Dict{String,Any}()
     for params in profile_params
         println()
         println("Profiling with following parameters:")
         display(params)
         fpath = joinpath("nn-models", params.fname)
-        info = profile_solver(
-            params.Solver,
-            fpath;
-            reduced_space = params.reduced,
-            schur = params.schur,
-        )
+        if fpath in keys(cache)
+            model, formulation, kkt_matrix = cache[fpath]
+        else
+            model, outputs, formulation = get_adversarial_model(
+                fpath, IMAGE_INDEX, ADVERSARIAL_LABEL, THRESHOLD;
+                reduced_space = false
+            )
+            nlp, kkt_system, kkt_matrix = get_kkt(model, Solver = MadNLPHSL.Ma57Solver)
+            cache[fpath] = (model, formulation, kkt_matrix)
+        end
+        if params.Solver === SchurComplementSolver || params.schur
+            pivot_vars, pivot_cons = get_vars_cons(formulation)
+            pivot_indices = get_kkt_indices(model, pivot_vars, pivot_cons)
+            #pivot_indices = sort(pivot_indices)
+            pivot_indices = convert(Vector{Int32}, pivot_indices)
+            blocks = partition_indices_by_layer(model, formulation; indices = pivot_indices)
+            pivot_solver_opt = BlockTriangularOptions(; blocks)
+            opt = SchurComplementOptions(;
+                ReducedSolver = MadNLPHSL.Ma57Solver,
+                PivotSolver = BlockTriangularSolver,
+                pivot_indices = pivot_indices,
+                pivot_solver_opt,
+            )
+            Solver = SchurComplementSolver
+        else
+            opt = MadNLP.default_options(params.Solver)
+            Solver = params.Solver
+        end
+        # We can be more efficient by using the matrix API
+        # Note that this doesn't support reduced-space...
+        info = profile_solver(Solver, copy(kkt_matrix); opt)
+        #info = profile_solver(
+        #    params.Solver,
+        #    fpath;
+        #    reduced_space = params.reduced,
+        #    schur = params.schur,
+        #)
         # Insert 'nnz' field between params and times
-        params = merge(params, (; nnz = info.nnz))
+        n_nn_params = count_nn_parameters(fpath)
         params = (;
             Solver = SOLVER_TO_NAME[params.Solver],
             ID = _parse_nn_fname(params.fname),
+            nparams = n_nn_params,
+            nnz = info.nnz,
             reduced = params.reduced,
             schur = params.schur,
         )
@@ -221,17 +257,17 @@ end
 
 function _compare_schur()
     solver_types = [
-        MadNLPHSL.Ma27Solver,
+        #MadNLPHSL.Ma27Solver,
         MadNLPHSL.Ma57Solver, # TODO: How does MA57 do with Metis?
-        MadNLPHSL.Ma97Solver,
+        #MadNLPHSL.Ma97Solver,
     ]
     nnfnames = [
         # For testing
         #"mnist-relu128nodes4layers.pt",
         # IIRC, this is the largest network MA27 and MA97 work on...
         "mnist-relu512nodes4layers.pt",
-        #"mnist-relu512nodes8layers.pt",
         "mnist-relu1024nodes4layers.pt",
+        "mnist-relu2048nodes4layers.pt",
     ]
     profile_params = [
         ProfileParams(Solver, fname, reduced, schur)
@@ -265,6 +301,7 @@ end
 #df = _compare_full_reduced()
 # Takeaway: Reduced-space is fast.
 
+df = _compare_schur()
 df = _compare_schur()
 # Takeaway: Schur is slow (although it can do symbolic factorization faster than
 # MA27/97, which is not saying much). On the 1024-by-4 network, it is approximately

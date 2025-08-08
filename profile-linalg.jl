@@ -148,7 +148,7 @@ end
 
 
 using Serialization
-#if abspath(PROGRAM_FILE) == @__FILE__
+if abspath(PROGRAM_FILE) == @__FILE__
     # TODO: CLI
     # Global data. Unfortunately, we rely on this in profile_solver(Solver, file)
     IMAGE_INDEX = 7
@@ -218,6 +218,7 @@ using Serialization
         Profile.print()
     end
 
-    matrix_file = joinpath("madnlp-matrices", "iter00.bin")
-    iter0_matrix = open(Serialization.deserialize, matrix_file, "r")
-#end
+    # Debugging matrix from MadNLP
+    #matrix_file = joinpath("madnlp-matrices", "iter00.bin")
+    #iter0_matrix = open(Serialization.deserialize, matrix_file, "r")
+end
