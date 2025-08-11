@@ -172,7 +172,23 @@ if abspath(PROGRAM_FILE) == @__FILE__
         reduced_space = false
     )
     nlp, kkt_system, kkt_matrix = get_kkt(model, Solver=MadNLPHSL.Ma57Solver)
+
+    # This should reproduce exactly what we get in MadNLP.
+    # This does appear to give me the same performance profile I see in MadNLP.
+    # Note that the initialize! step is very important
+    #madnlp = MadNLP.MadNLPSolver(nlp; linear_solver = MadNLPHSL.Ma57Solver)
+    #MadNLP.initialize!(madnlp)
+    #kkt_system = madnlp.kkt
+    ## Give us some primal regularization
+    ## This doesn't really seem to help
+    ##kkt_system.pr_diag .+= 1.0
+    ## Transfer these values to the CSC matrix
+    ##MadNLP.build_kkt!(kkt_system)
+    #kkt_matrix = MadNLP.get_kkt(kkt_system)
+
     display(kkt_matrix)
+    ave_nzmag = sum(abs.(kkt_matrix.nzval)) / length(kkt_matrix.nzval)
+    println("Average NZ magnitude: $ave_nzmag")
 
     pivot_vars, pivot_cons = get_vars_cons(formulation)
     pivot_indices = get_kkt_indices(model, pivot_vars, pivot_cons)
