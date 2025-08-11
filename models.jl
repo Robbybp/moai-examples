@@ -17,21 +17,34 @@ function update_kkt!(
     hess_values = MadNLP.get_hessian(kkt)
     n = NLPModels.get_nvar(nlp)
     m = NLPModels.get_ncon(nlp)
-    #x = NLPModels.get_x0(nlp)
-    #x = ones(n)
     if x === nothing
+        # FIXME: Some inertia tests fail when we use x0.
+        #x = NLPModels.get_x0(nlp)
         x = ones(n)
     end
     λ = ones(m)
 
+    # This is not always the case for some reason???
+    # Due to fixed variables or something?
+    #@assert NLPModels.get_nnzh(nlp) == length(hess_values)
     NLPModels.hess_coord!(nlp, x, λ, hess_values)
 
     jac_values = MadNLP.get_jacobian(kkt)
+    @assert NLPModels.get_nnzj(nlp) == length(jac_values)
     NLPModels.jac_coord!(nlp, x, jac_values)
 
-    #kkt.reg = 0.0
-    #kkt.pr_diag = 0.0
-    #kkt.du_diag = 0.0
+    # As far as I can tell, this is only used to set the primal
+    # (and maybe dual?) diagonal.
+    kkt.reg .= 0.0
+    # These are unsafe wraps around KKT nonzeros. Here, I am initializing with
+    # some combination of regularization and primal bound multipliers/slacks.
+    # This is slightly different from what we would see in an IPM, but it's still
+    # defensible. I'm just initializing bound multipliers to zero, then regularizing.
+    #
+    # Note that when I set `pr_diag` to zero, default MA57 gets way worse, but my
+    # method doesn't change much. (Presumably this is due to numerical pivoting.)
+    kkt.pr_diag .= 1.0
+    kkt.du_diag .= 0.0
     return
 end
 
