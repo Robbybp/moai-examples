@@ -70,10 +70,12 @@ def main(args):
 
     # Implement architecture of NN:
     # - Affine layer mapping input dimension to hidden dimension
-    # - (n-1) layers of: activation function followed by hidden-by-hidden affine layer
+    # - n layers of: activation function followed by hidden-by-hidden affine layer
     # - activation layer
     # - hidden-by-output affine layer
     # - softmax
+    # So, "4 layers" => 4 hidden-by-hidden affine layers, which means 5 activation
+    # function layers of the hidden dimension.
     layers = [torch.nn.Linear(input_dim, hidden_dim)]
     for i in range(n_hidden):
         layers.append(activation_function())
