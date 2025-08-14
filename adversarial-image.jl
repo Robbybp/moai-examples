@@ -75,6 +75,8 @@ function get_adversarial_model(
     adversarial_label::Int,
     threshold::Float64;
     reduced_space::Bool = false,
+    gray_box::Bool = false,
+    vector_nonlinear_oracle::Bool = false,
 )
     _t = time()
     # Network is trained so that outputs represent 0-9
@@ -111,7 +113,7 @@ function get_adversarial_model(
     # Fortunately, `vec` stacks matrices by column, so it gives us the correct flattened
     # vector.
 
-    if reduced_space
+    if reduced_space || gray_box || vector_nonlinear_oracle
         config = Dict()
     else
         config = Dict(:ReLU => MOAI.ReLUQuadratic(relaxation_parameter = 1e-6))
@@ -125,10 +127,23 @@ function get_adversarial_model(
         predictor,
         vec(x);
         config,
-        gray_box = reduced_space,
+        reduced_space = reduced_space,
+        gray_box = gray_box,
+        vector_nonlinear_oracle = vector_nonlinear_oracle,
         hessian = true,
     )
     dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Add predictor")
+    # VNO only supports adding constraints as `y = NN(x)`.
+    # For consistency (i.e., so reduced-space, gray-box, and VNO all have the
+    # same number of variables), we add output variables if reduced-space is
+    # specified. Note that this adds a small number of variables compared to
+    # the number of intermediate variables that are in the full-space formulation.
+    if gray_box && !vector_nonlinear_oracle
+        y_expr = y
+        y = JuMP.@variable(m, y[1:length(y_expr)])
+        JuMP.@constraint(m, y .== y_expr)
+        # TODO: Potentially add inequality constraints to bound y_expr?
+    end
     JuMP.@constraint(m, 0.0 .<= y .<= 1.0)
 
     # Initialize intermediate variables to 0.5
