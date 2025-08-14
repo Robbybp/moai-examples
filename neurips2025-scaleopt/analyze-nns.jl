@@ -105,6 +105,7 @@ fnames = [
     "mnist-tanh1024nodes4layers.pt",
     "mnist-tanh2048nodes4layers.pt",
     "mnist-tanh4096nodes4layers.pt",
+    "mnist-tanh8192nodes4layers.pt",
 ]
 nn_dir = joinpath(dirname(dirname(@__FILE__)), "nn-models")
 fpaths = map(f -> joinpath(nn_dir, f), fnames)
