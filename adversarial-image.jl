@@ -138,7 +138,7 @@ function get_adversarial_model(
     # same number of variables), we add output variables if reduced-space is
     # specified. Note that this adds a small number of variables compared to
     # the number of intermediate variables that are in the full-space formulation.
-    if gray_box && !vector_nonlinear_oracle
+    if reduced_space
         y_expr = y
         y = JuMP.@variable(m, y[1:length(y_expr)])
         JuMP.@constraint(m, y .== y_expr)
