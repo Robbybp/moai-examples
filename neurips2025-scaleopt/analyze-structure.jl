@@ -28,15 +28,33 @@ MODEL_GETTER = Dict(
 FORMULATION_TO_KWARGS = Dict(
     :full_space => Dict(),
     :reduced_space => Dict(:reduced_space => true),
-    :gray_box => Dict(:gray_box => true),
+    :gray_box => Dict(:gray_box => true, :reduced_space => false),
     :vector_nonlinear_oracle => Dict(:vector_nonlinear_oracle => true),
 )
 
 function get_model_structure(model::JuMP.Model)
     nvar = length(JuMP.all_variables(model))
-    ncon = length(JuMP.all_constraints(model; include_variable_in_set_constraints = false))
+    cons = JuMP.all_constraints(model; include_variable_in_set_constraints = false)
+    conobjs = map(JuMP.constraint_object, cons)
+    con_dims = map(
+        # HACK: This is not general if I have other types of VectorSets.
+        #
+        # Really, we should be able to use the AbstractVectorSet.dimension field to get
+        # dimension of any AbstractVectorSet. But VNO doesn't implement this.
+        # Instead, it uses output_dimension.
+        # Is this the right way to get the dimension of a general vector set?
+        # The "dimension" of a constraint is not super well-defined...
+        c -> typeof(c.set) === Ipopt._VectorNonlinearOracle ? c.set.output_dimension : 1,
+        conobjs,
+    )
+    # Assume what we really mean by "N. constraints" is the number of rows in the
+    # Jacobian...
+    ncon = sum(con_dims)
+    # Setting the optimizer is necessary to get nonzeros due to linear,
+    # quadratic, and nonlinear parts of the model.
     JuMP.set_optimizer(model, Ipopt.Optimizer)
-    # This is necessary to get nonzeros due to linear, quadratic, and nonlinear parts of the model
+    # Not clear why I have to attach the optimizer...
+    MOI.Utilities.attach_optimizer(model)
     ipopt = JuMP.unsafe_backend(model)
     MOIExt = Base.get_extension(Ipopt, :IpoptMathOptInterfaceExt)
     @assert MOIExt !== nothing
@@ -48,31 +66,39 @@ function get_model_structure(model::JuMP.Model)
     return (; nvar, ncon, jnnz, hnnz)
 end
 
-models = ["mnist"]
+model_names = ["mnist"]
 # TODO: These NNs will depend on the model. We will need to look them up.
 fnames = [
     "mnist-tanh128nodes4layers.pt",
-    #"mnist-tanh512nodes4layers.pt",
-    #"mnist-tanh1024nodes4layers.pt",
+    "mnist-tanh512nodes4layers.pt",
+    "mnist-tanh1024nodes4layers.pt",
     #"mnist-tanh2048nodes4layers.pt",
     #"mnist-tanh4096nodes4layers.pt",
     #"mnist-tanh8192nodes4layers.pt",
 ]
 formulations = [
     :full_space,
-    :reduced_space,
+    # I can't even construct the reduced-space model for 128-by-4...
+    #:reduced_space,
     :gray_box,
     :vector_nonlinear_oracle,
 ]
 nn_dir = joinpath(dirname(dirname(@__FILE__)), "nn-models")
 fpaths = map(f -> joinpath(nn_dir, f), fnames)
 
+#models = []
 data = []
-for model_name in models
+for model_name in model_names
     for fpath in fpaths
         for formulation in formulations
+            println("Model: $model_name")
+            println("NN: $fpath")
+            println("Formulation: $formulation")
+            args = (; model = model_name, NN = basename(fpath), formulation)
             model = MODEL_GETTER[model_name](fpath; FORMULATION_TO_KWARGS[formulation]...)
-            info = get_model_structure(model)
+            structure_info = get_model_structure(model)
+            info = merge(args, structure_info)
+            #push!(models, model)
             push!(data, info)
         end
     end
