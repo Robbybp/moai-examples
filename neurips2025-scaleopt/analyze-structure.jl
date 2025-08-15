@@ -9,6 +9,7 @@ TODO:
 """
 
 import JuMP
+import MathOptInterface as MOI
 import Ipopt
 import DataFrames
 
@@ -36,6 +37,8 @@ function get_model_structure(model::JuMP.Model)
     nvar = length(JuMP.all_variables(model))
     cons = JuMP.all_constraints(model; include_variable_in_set_constraints = false)
     conobjs = map(JuMP.constraint_object, cons)
+    # Make sure the only vector sets we have are _VectorNonlinearOracle
+    @assert all(map(c -> c.set isa Ipopt._VectorNonlinearOracle || c.set isa MOI.AbstractScalarSet, conobjs))
     con_dims = map(
         # HACK: This is not general if I have other types of VectorSets.
         #
@@ -44,7 +47,7 @@ function get_model_structure(model::JuMP.Model)
         # Instead, it uses output_dimension.
         # Is this the right way to get the dimension of a general vector set?
         # The "dimension" of a constraint is not super well-defined...
-        c -> typeof(c.set) === Ipopt._VectorNonlinearOracle ? c.set.output_dimension : 1,
+        c -> c.set isa Ipopt._VectorNonlinearOracle ? c.set.output_dimension : 1,
         conobjs,
     )
     # Assume what we really mean by "N. constraints" is the number of rows in the
