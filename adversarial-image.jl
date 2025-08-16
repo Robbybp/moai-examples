@@ -77,6 +77,7 @@ function get_adversarial_model(
     reduced_space::Bool = false,
     gray_box::Bool = false,
     vector_nonlinear_oracle::Bool = false,
+    device = "cpu",
 )
     _t = time()
     # Network is trained so that outputs represent 0-9
