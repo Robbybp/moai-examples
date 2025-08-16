@@ -2,7 +2,6 @@
 information about many models.
 
 TODO:
-- Put model getting utilities in a separate file
 - Put the sweep and printing in a separate file, leaving this file with only the
   core functionality
 
@@ -13,25 +12,7 @@ import MathOptInterface as MOI
 import Ipopt
 import DataFrames
 
-# TODO: Move model getter to config file or something
-include("../adversarial-image.jl")
-function _get_adversarial_image_model(nnfile::String; kwargs...)
-    image_index = 7
-    adversarial_label = 1
-    threshold = 0.6
-    model, _ = get_adversarial_model(nnfile, image_index, adversarial_label, threshold; kwargs...)
-    return model
-end
-MODEL_GETTER = Dict(
-    "mnist" => _get_adversarial_image_model,
-)
-
-FORMULATION_TO_KWARGS = Dict(
-    :full_space => Dict(),
-    :reduced_space => Dict(:reduced_space => true),
-    :gray_box => Dict(:gray_box => true, :reduced_space => false),
-    :vector_nonlinear_oracle => Dict(:vector_nonlinear_oracle => true),
-)
+include("model-getter.jl")
 
 function get_model_structure(model::JuMP.Model)
     nvar = length(JuMP.all_variables(model))
