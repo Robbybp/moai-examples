@@ -39,10 +39,10 @@ function get_ipopt_solve_time(model)
     end
     println()
     return (;
-        solve_total = t_solve,
-        eval_function = t_function,
-        eval_jacobian = t_jacobian,
-        eval_hessian = t_hessian,
+        t_solve_total = t_solve,
+        t_eval_function = t_function,
+        t_eval_jacobian = t_jacobian,
+        t_eval_hessian = t_hessian,
     )
 end
 
@@ -62,13 +62,10 @@ function solve_model_with_ipopt(model)
     # TODO: Combine these times with VNO timer
     objective_value = (success ? JuMP.objective_value(model) : NaN)
     timer = get_ipopt_solve_time(model)
+    info = (; n_iterations, success, objective_value)
+    info = merge(info, timer)
     # TODO: Return solution
-    return (;
-        time = timer,
-        n_iterations,
-        success,
-        objective_value,
-    )
+    return info
 end
 
 """The following is code to set up and execute the parameter sweep.
@@ -87,7 +84,7 @@ model_names = ["mnist"]
 # TODO: These NNs will depend on the model. We will need to look them up.
 fnames = [
     "mnist-tanh128nodes4layers.pt",
-    "mnist-tanh512nodes4layers.pt",
+    #"mnist-tanh512nodes4layers.pt",
     #"mnist-tanh1024nodes4layers.pt",
     #"mnist-tanh2048nodes4layers.pt",
     #"mnist-tanh4096nodes4layers.pt",
@@ -101,7 +98,7 @@ formulations = [
 nn_dir = joinpath(dirname(dirname(@__FILE__)), "nn-models")
 fpaths = map(f -> joinpath(nn_dir, f), fnames)
 
-NSAMPLES = 2
+NSAMPLES = 1
 
 #models = []
 data = []
@@ -122,13 +119,11 @@ for model_name in model_names
                         sample_index = sample,
                         FORMULATION_TO_KWARGS[formulation]...,
                     )
-                    t_model_build = time() - _t
-                    println("Model build time: $t_model_build")
+                    t_build_total = time() - _t
+                    println("Model build time: $t_build_total")
 
                     results = solve_model_with_ipopt(model)
-                    time_info = merge(results.time, (; build_total = t_model_build))
-                    # time_info.time will override results.time. This is what I want
-                    info = merge(args, results, (; time = time_info))
+                    info = merge(args, results, (; t_build_total))
                     #push!(models, model)
                     push!(data, info)
                 end
