@@ -1,6 +1,9 @@
 import Ipopt
 import JuMP
-import Plots
+# Some environments, e.g., HPC, don't support Plots.
+# Plotting code should stay in its own file.
+#import Plots
+
 #ENV["JULIA_CONDAPKG_BACKEND"] = "Null"
 import PythonCall
 import MadNLP
@@ -97,7 +100,7 @@ function get_adversarial_model(
     println("LABEL FOR IMAGE $(image_index): $(target_label)")
     println("LOADING NN FROM FILE: $nnfile")
     torch = PythonCall.pyimport("torch")
-    nn = torch.load(nnfile, weights_only = false)
+    nn = torch.load(nnfile; weights_only = false, map_location = "cpu")
     dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Load into pytorch")
     pyinput = torch.tensor(vec(xref))
     pyoutput = nn(pyinput).detach().numpy()
@@ -205,18 +208,18 @@ function find_adversarial_image(
     return adversarial_x, info
 end
 
-function plot_image(x::Matrix; kwargs...)
-    return Plots.heatmap(
-        x'[size(x, 1):-1:1, :];
-        xlims = (1, size(x, 2)),
-        ylims = (1, size(x, 1)),
-        aspect_ratio = true,
-        legend = false,
-        xaxis = false,
-        yaxis = false,
-        kwargs...,
-    )
-end
+#function plot_image(x::Matrix; kwargs...)
+#    return Plots.heatmap(
+#        x'[size(x, 1):-1:1, :];
+#        xlims = (1, size(x, 2)),
+#        ylims = (1, size(x, 1)),
+#        aspect_ratio = true,
+#        legend = false,
+#        xaxis = false,
+#        yaxis = false,
+#        kwargs...,
+#    )
+#end
 
 if abspath(PROGRAM_FILE) == @__FILE__
     # TODO: Most of this goes in CLI, which will be in a separate script
