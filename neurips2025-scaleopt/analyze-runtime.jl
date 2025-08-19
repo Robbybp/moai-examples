@@ -1,8 +1,11 @@
+ENV["JULIA_CONDAPKG_BACKEND"] = "Null"
 import JuMP
 import MathOptInterface as MOI
 import Ipopt
 import DataFrames
+import CSV
 
+include("localconfig.jl")
 include("model-getter.jl")
 
 function get_ipopt_solve_time(model)
@@ -78,17 +81,20 @@ reduced-space (on CPU and GPU).
 """
 
 # TODO: Add "cuda" if it is available
-devices = Dict(:full_space => ["cpu"], :vector_nonlinear_oracle => ["cpu"])
+devices = Dict(
+    :full_space => ["cpu"],
+    :vector_nonlinear_oracle => ["cpu", "cuda"],
+)
 
 model_names = ["mnist"]
 # TODO: These NNs will depend on the model. We will need to look them up.
 fnames = [
     "mnist-tanh128nodes4layers.pt",
-    #"mnist-tanh512nodes4layers.pt",
-    #"mnist-tanh1024nodes4layers.pt",
-    #"mnist-tanh2048nodes4layers.pt",
-    #"mnist-tanh4096nodes4layers.pt",
-    #"mnist-tanh8192nodes4layers.pt",
+    "mnist-tanh512nodes4layers.pt",
+    "mnist-tanh1024nodes4layers.pt",
+    "mnist-tanh2048nodes4layers.pt",
+    "mnist-tanh4096nodes4layers.pt",
+    "mnist-sigmoid8192nodes4layers.pt",
 ]
 # In this experiment, the only "reduced-space" we care about is VNO.
 formulations = [
@@ -133,3 +139,9 @@ for model_name in model_names
 end
 df = DataFrames.DataFrame(data)
 println(df)
+
+tabledir = get_table_dir()
+fname = "runtime.csv"
+fpath = joinpath(tabledir, fname)
+println("Writing results to $fpath")
+CSV.write(fpath, df)

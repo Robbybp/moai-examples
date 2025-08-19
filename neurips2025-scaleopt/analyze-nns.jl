@@ -1,5 +1,9 @@
+# Just use whatever Python we find on the path, whether or not it is from conda
+ENV["JULIA_CONDAPKG_BACKEND"] = "Null"
+
 import MathOptAI
 import DataFrames
+
 include("../pytorch.jl")
 
 _isinstance(a, b) = Bool(PythonCall.pybuiltins.isinstance(a, b))
@@ -80,7 +84,7 @@ end
 
 function analyze_nn(fpath::String)
     torch = PythonCall.pyimport("torch")
-    nn = torch.load(fpath, weights_only = false)
+    nn = torch.load(fpath, weights_only = false, map_location="cpu")
     n_inputs = _get_input_dimension(nn)
     x = torch.tensor(ones(n_inputs))
     y = nn(x) # By the MathOptAI convention, this must be a flat vector of outputs (IIRC)
@@ -105,7 +109,7 @@ fnames = [
     "mnist-tanh1024nodes4layers.pt",
     "mnist-tanh2048nodes4layers.pt",
     "mnist-tanh4096nodes4layers.pt",
-    "mnist-tanh8192nodes4layers.pt",
+    "mnist-sigmoid8192nodes4layers.pt",
 ]
 nn_dir = joinpath(dirname(dirname(@__FILE__)), "nn-models")
 fpaths = map(f -> joinpath(nn_dir, f), fnames)

@@ -7,6 +7,10 @@ TODO:
 
 """
 
+# Just use whatever Python is on the Path. This gets around the fact that
+# (a) I can't always use CondaPkg's conda installation (e.g., on HPC)
+# and (b) I don't always have conda installed.
+ENV["JULIA_CONDAPKG_BACKEND"] = "Null"
 import JuMP
 import MathOptInterface as MOI
 import Ipopt
