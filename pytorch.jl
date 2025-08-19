@@ -2,7 +2,7 @@ import PythonCall
 
 function count_nn_parameters(fpath)
     torch = PythonCall.pyimport("torch")
-    nn = torch.load(fpath, weights_only = false)
+    nn = torch.load(fpath, weights_only = false, map_location=torch.device("cpu"))
     params = PythonCall.pyconvert(Vector{PythonCall.Core.Py}, nn.parameters())
     params = filter(p -> PythonCall.pyconvert(Bool, p.requires_grad), params)
     return sum(PythonCall.pyconvert(Int, p.numel()) for p in params)
