@@ -3,6 +3,7 @@ import torch
 import torchvision
 from torchvision.transforms.v2 import PILToTensor, ToTensor
 import os
+import time
 
 import config
 
@@ -29,16 +30,19 @@ def predict(nn, x):
     return max(range(output_dim), key=lambda i: output[i])
 
 
-def evaluate_accuracy(nn, dataset):
+def evaluate_accuracy(nn, dataset, *, device="cpu"):
+    nn.to(device)
     nsamples = len(dataset)
     input_dim = torch.prod(torch.tensor(dataset[0][0].shape))
-    x = dataset[0][0].reshape(input_dim)
+    x = dataset[0][0].reshape(input_dim).to(device)
     output_dim = len(nn(x))
     inputs = [image.reshape(input_dim) for image, _ in dataset]
     inputs = torch.stack(inputs)
+    inputs = inputs.to(device)
     outputs = nn(inputs)
     predictions = torch.argmax(outputs, dim=1)
     labels = torch.tensor([label for _, label in dataset])
+    labels = labels.to(device)
     ncorrect = torch.sum(labels == predictions)
     return float(ncorrect / nsamples)
 
@@ -96,12 +100,18 @@ def main(args):
         print(f"output = {y}")
         print(f"Prediction: {pred}")
 
+    # Send model and data to device
+    nn.to(args.device)
+
     compute_loss = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(nn.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(nn.parameters(), lr=args.learning_rate)
     nn.train() # Set model in training mode. Not sure why...
+    t_train_start = time.time()
     for epoch in range(args.epochs):
         epoch_loss = 0.0
         for inputs, labels in train_dataloader:
+            inputs = inputs.to(args.device)
+            labels = labels.to(args.device)
             optimizer.zero_grad()
             inshape = inputs.shape
             # inshape[0] is the batch size, potentially truncated because we're at the
@@ -118,11 +128,16 @@ def main(args):
 
         ave_loss = epoch_loss / len(train_dataloader)
         print(f"Epoch {epoch+1} / {args.epochs}: Loss = {ave_loss:1.2e}")
+    t_train = time.time() - t_train_start
+    print(f"Time spent training: {t_train:1.2f}")
 
     likelihood_predictor = torch.nn.Sequential(nn, torch.nn.Softmax(dim=0))
-    acc = evaluate_accuracy(nn, train_dataset)
+    acc = evaluate_accuracy(nn, train_dataset, device=args.device)
     ntrain = len(train_dataset)
     print(f"Accuracy on training set of {ntrain} samples: {acc}")
+
+    # Send model back to CPU
+    nn.to("cpu")
 
     # Evaluate on test data
     test_dataset = torchvision.datasets.MNIST(
@@ -131,7 +146,7 @@ def main(args):
         train=False,
     )
     nn.eval()
-    acc = evaluate_accuracy(nn, test_dataset)
+    acc = evaluate_accuracy(nn, test_dataset, device=args.device)
     ntest = len(test_dataset)
     print(f"Accuracy on test set of {ntest} samples: {acc}")
 
@@ -153,5 +168,6 @@ if __name__ == "__main__":
     parser.add_argument("--device", default="cpu", help="default='cpu'")
     parser.add_argument("--epochs", type=int, default=10, help="default=10")
     parser.add_argument("--batchsize", type=int, default=64, help="default=64")
+    parser.add_argument("--learning-rate", type=float, default=1e-3, help="default=1e-3")
     args = parser.parse_args()
     main(args)
