@@ -136,9 +136,6 @@ def main(args):
     ntrain = len(train_dataset)
     print(f"Accuracy on training set of {ntrain} samples: {acc}")
 
-    # Send model back to CPU
-    nn.to("cpu")
-
     # Evaluate on test data
     test_dataset = torchvision.datasets.MNIST(
         root=config.get_data_dir(),
@@ -149,6 +146,9 @@ def main(args):
     acc = evaluate_accuracy(nn, test_dataset, device=args.device)
     ntest = len(test_dataset)
     print(f"Accuracy on test set of {ntest} samples: {acc}")
+
+    # Send model back to CPU
+    nn.to("cpu")
 
     fname = _get_fname(args)
     fpath = os.path.join(config.get_nn_dir(create=True), fname)
