@@ -10,41 +10,37 @@ I'm using for this sweep.
 """
 # TODO: Should this be moved into localconfig.jl?
 
+# This is where MODEL_TO_NNS is defined
+include("model-getter.jl")
+
 devices = Dict(
     :full_space => ["cpu"],
-    :vector_nonlinear_oracle => ["cpu", "cuda"],
+    :vector_nonlinear_oracle => [
+        "cpu",
+        #"cuda",
+    ],
 )
 
-model_names = ["mnist"]
-# TODO: These NNs will depend on the model. We will need to look them up.
-fnames = [
-    "mnist-tanh128nodes4layers.pt",
-    "mnist-tanh512nodes4layers.pt",
-    "mnist-tanh1024nodes4layers.pt",
-    "mnist-tanh2048nodes4layers.pt",
-    "mnist-tanh4096nodes4layers.pt",
-    "mnist-sigmoid8192nodes4layers.pt",
-]
+model_names = ["mnist", "scopf"]
 # In this experiment, the only "reduced-space" we care about is VNO.
 formulations = [
     :full_space,
     :vector_nonlinear_oracle,
 ]
 nn_dir = joinpath(dirname(dirname(@__FILE__)), "nn-models")
-fpaths = map(f -> joinpath(nn_dir, f), fnames)
 
 NSAMPLES = 1
 
 inputs = [
     (
         model_name,
-        fpath,
+        fname,
         formulation,
         device,
         sample,
     )
     for model_name in model_names
-    for fpath in fpaths
+    for fname in MODEL_TO_NNS[model_name]
     for formulation in formulations
     for device in devices[formulation]
     for sample in 1:NSAMPLES

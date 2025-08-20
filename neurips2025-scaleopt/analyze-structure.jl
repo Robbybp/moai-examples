@@ -15,7 +15,9 @@ import JuMP
 import MathOptInterface as MOI
 import Ipopt
 import DataFrames
+import CSV
 
+include("localconfig.jl")
 include("model-getter.jl")
 
 function get_model_structure(model::JuMP.Model)
@@ -54,16 +56,7 @@ function get_model_structure(model::JuMP.Model)
     return (; nvar, ncon, jnnz, hnnz)
 end
 
-model_names = ["mnist"]
-# TODO: These NNs will depend on the model. We will need to look them up.
-fnames = [
-    "mnist-tanh128nodes4layers.pt",
-    "mnist-tanh512nodes4layers.pt",
-    "mnist-tanh1024nodes4layers.pt",
-    #"mnist-tanh2048nodes4layers.pt",
-    #"mnist-tanh4096nodes4layers.pt",
-    #"mnist-tanh8192nodes4layers.pt",
-]
+model_names = ["mnist", "scopf"]
 formulations = [
     :full_space,
     # I can't even construct the reduced-space model for 128-by-4...
@@ -72,12 +65,12 @@ formulations = [
     :vector_nonlinear_oracle,
 ]
 nn_dir = joinpath(dirname(dirname(@__FILE__)), "nn-models")
-fpaths = map(f -> joinpath(nn_dir, f), fnames)
 
 #models = []
 data = []
 for model_name in model_names
-    for fpath in fpaths
+    for fname in MODEL_TO_NNS[model_name]
+        fpath = joinpath(nn_dir, fname)
         for formulation in formulations
             println("Model: $model_name")
             println("NN: $fpath")
@@ -92,4 +85,9 @@ for model_name in model_names
     end
 end
 df = DataFrames.DataFrame(data)
+tabledir = get_table_dir()
+fname = "structure.csv"
+fpath = joinpath(tabledir, fname)
+println("Writing results to $fpath")
+CSV.write(fpath, df)
 println(df)

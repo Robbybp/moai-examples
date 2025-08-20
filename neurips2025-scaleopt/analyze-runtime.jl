@@ -6,7 +6,8 @@ import DataFrames
 import CSV
 
 include("localconfig.jl")
-include("model-getter.jl")
+#include("model-getter.jl")
+# ^ included by setup-compare-formulations
 
 function get_ipopt_solve_time(model)
     t_solve = JuMP.solve_time(model)
@@ -87,70 +88,43 @@ reduced-space (on CPU and GPU).
 
 if abspath(PROGRAM_FILE) == @__FILE__
 
-# TODO: Add "cuda" if it is available
-devices = Dict(
-    :full_space => ["cpu"],
-    :vector_nonlinear_oracle => ["cpu", "cuda"],
-)
-
-model_names = ["mnist"]
-# TODO: These NNs will depend on the model. We will need to look them up.
-fnames = [
-    "mnist-tanh128nodes4layers.pt",
-    "mnist-tanh512nodes4layers.pt",
-    "mnist-tanh1024nodes4layers.pt",
-    "mnist-tanh2048nodes4layers.pt",
-    "mnist-tanh4096nodes4layers.pt",
-    "mnist-sigmoid8192nodes4layers.pt",
-]
-# In this experiment, the only "reduced-space" we care about is VNO.
-formulations = [
-    :full_space,
-    :vector_nonlinear_oracle,
-]
-nn_dir = joinpath(dirname(dirname(@__FILE__)), "nn-models")
-fpaths = map(f -> joinpath(nn_dir, f), fnames)
-
-NSAMPLES = 1
+include("setup-compare-formulations.jl")
 
 #models = []
 data = []
-for model_name in model_names
-    for fpath in fpaths
-        for formulation in formulations
-            for device in devices[formulation]
-                for sample in 1:NSAMPLES
-                    println("Model: $model_name")
-                    println("NN: $fpath")
-                    println("Formulation: $formulation")
-                    println("Device: $device")
-                    args = (; model = model_name, NN = basename(fpath), formulation, device, sample)
-                    _t = time()
-                    model = MODEL_GETTER[model_name](
-                        fpath;
-                        device = device,
-                        sample_index = sample,
-                        FORMULATION_TO_KWARGS[formulation]...,
-                    )
-                    t_build_total = time() - _t
-                    println("Model build time: $t_build_total")
+for (index, model_name, fname, formulation, device, sample) in inputs
+    # Note that nn_dir is defined in setup-compare-formulations.jl
+    fpath = joinpath(nn_dir, fname)
+    println("LOOP ELEMENT $index / $n_elements")
+    println("Model: $model_name")
+    println("NN: $fpath")
+    println("Formulation: $formulation")
+    println("Device: $device")
+    args = (; model = model_name, NN = basename(fpath), formulation, device, sample)
+    _t = time()
+    model = MODEL_GETTER[model_name](
+        fpath;
+        device = device,
+        sample_index = sample,
+        FORMULATION_TO_KWARGS[formulation]...,
+    )
+    t_build_total = time() - _t
+    println("Model build time: $t_build_total")
 
-                    results = solve_model_with_ipopt(model)
-                    info = merge(args, results, (; t_build_total))
-                    #push!(models, model)
-                    push!(data, info)
-                end
-            end
-        end
-    end
+    results = solve_model_with_ipopt(model)
+    info = merge(args, results, (; t_build_total))
+    #push!(models, model)
+    push!(data, info)
 end
+
 df = DataFrames.DataFrame(data)
 println(df)
 
 tabledir = get_table_dir()
-fname = "runtime.csv"
+fname = "runtime-local.csv" # "local" as in "not distributed"... Maybe not the best name
 fpath = joinpath(tabledir, fname)
 println("Writing results to $fpath")
 CSV.write(fpath, df)
+println(df)
 
 end

@@ -5,6 +5,7 @@ import MathOptAI
 import DataFrames
 
 include("../pytorch.jl")
+include("model-getter.jl")
 
 _isinstance(a, b) = Bool(PythonCall.pybuiltins.isinstance(a, b))
 
@@ -104,30 +105,10 @@ function analyze_nn(fpath::String)
 end
 
 model_names = ["mnist", "scopf"]
-
-fnames = Dict(
-    "mnist" => [
-        "mnist-tanh128nodes4layers.pt",
-        "mnist-tanh512nodes4layers.pt",
-        "mnist-tanh1024nodes4layers.pt",
-        "mnist-tanh2048nodes4layers.pt",
-        "mnist-tanh4096nodes4layers.pt",
-        #"mnist-sigmoid8192nodes4layers.pt",
-    ],
-    "scopf" => [
-        joinpath("scopf", "100nodes3layers.pt"),
-        joinpath("scopf", "500nodes5layers.pt"),
-        joinpath("scopf", "1000nodes7layers.pt"),
-        joinpath("scopf", "2000nodes20layers.pt"),
-        joinpath("scopf", "4000nodes40layers.pt"),
-    ],
-)
-
 nn_dir = joinpath(dirname(dirname(@__FILE__)), "nn-models")
-
 nn_data = []
 for model_name in model_names
-    for fname in fnames[model_name]
+    for fname in MODEL_TO_NNS[model_name]
         fpath = joinpath(nn_dir, fname)
         res = analyze_nn(fpath)
         inputs = (; fname)
