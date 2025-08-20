@@ -1,5 +1,6 @@
 # TODO: Move model getter to config file or something
 include("../adversarial-image.jl")
+include("../scopf/model.jl")
 
 """Model functions are expected to accept the following parameters:
 - NN (path to .pt file)
@@ -28,7 +29,6 @@ SAMPLE_TO_MNIST_TARGET = [4, 6, 6, 9, 2, 8, 1, 5, 6, 9, 4, 0, 7, 3, 0, 7, 3, 7,
     3, 7, 3, 5, 4, 1, 4]
 SAMPLE_TO_ADVERSARIAL_LABEL = [ADVERSARIAL_LABEL_LOOKUP[t] for t in SAMPLE_TO_MNIST_TARGET]
 
-
 function _get_adversarial_image_model(nnfile::String; sample_index = 1, kwargs...)
     # Note that this is the index in the test data
     @assert 1 <= sample_index <= 100
@@ -45,13 +45,52 @@ function _get_adversarial_image_model(nnfile::String; sample_index = 1, kwargs..
     model, _ = get_adversarial_model(nnfile, image_index, adversarial_label, threshold; kwargs...)
     return model
 end
+
+import PowerModels
+import PowerModelsSecurityConstrained as PMSC
+import MathOptAI as MOAI
+function _get_scopf_model(nnfile::String; sample_index = 1, kwargs...)
+    # TODO: adjust loads randomly with a seed depending on the sample
+    @assert sample_index == 1
+    files = (;
+        raw = joinpath(SCOPF_DIR, "hawaii37.raw"),
+        con = joinpath(SCOPF_DIR, "hawaii37-1gen.con"),
+        rop = joinpath(SCOPF_DIR, "hawaii37.rop"),
+        inl = joinpath(SCOPF_DIR, "hawaii37.inl"),
+    )
+    input_data = PMSC.parse_c1_files(files.con, files.inl, files.raw, files.rop)
+    pmdata = PMSC.build_c1_pm_model(input_data)
+    stability_surrogate = MOAI.PytorchModel(nnfile)
+    surrogate_params = Dict{Symbol,Any}(kwargs)
+    pm, info = build_scopf(pmdata; stability_surrogate, surrogate_params)
+    return pm.model
+end
 MODEL_GETTER = Dict(
     "mnist" => _get_adversarial_image_model,
+    "scopf" => _get_scopf_model,
 )
 
 FORMULATION_TO_KWARGS = Dict(
     :full_space => Dict(),
     :reduced_space => Dict(:reduced_space => true),
-    :gray_box => Dict(:gray_box => true),
-    :vector_nonlinear_oracle => Dict(:vector_nonlinear_oracle => true),
+    :gray_box => Dict(:gray_box => true, :hessian => true),
+    :vector_nonlinear_oracle => Dict(:vector_nonlinear_oracle => true, :hessian => true),
+)
+
+MODEL_TO_NNS = Dict(
+    "mnist" => [
+        "mnist-tanh128nodes4layers.pt",
+        "mnist-tanh512nodes4layers.pt",
+        #"mnist-tanh1024nodes4layers.pt",
+        #"mnist-tanh2048nodes4layers.pt",
+        #"mnist-tanh4096nodes4layers.pt",
+        ##"mnist-sigmoid8192nodes4layers.pt",
+    ],
+    "scopf" => [
+        joinpath("scopf", "100nodes3layers.pt"),
+        joinpath("scopf", "500nodes5layers.pt"),
+        #joinpath("scopf", "1000nodes7layers.pt"),
+        #joinpath("scopf", "2000nodes20layers.pt"),
+        #joinpath("scopf", "4000nodes40layers.pt"),
+    ],
 )
