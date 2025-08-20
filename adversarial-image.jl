@@ -81,6 +81,7 @@ function get_adversarial_model(
     gray_box::Bool = false,
     vector_nonlinear_oracle::Bool = false,
     device = "cpu",
+    hessian = true,
 )
     _t = time()
     # Network is trained so that outputs represent 0-9
@@ -134,7 +135,7 @@ function get_adversarial_model(
         reduced_space = reduced_space,
         gray_box = gray_box,
         vector_nonlinear_oracle = vector_nonlinear_oracle,
-        hessian = true,
+        hessian = hessian,
         device,
     )
     dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Add predictor")
