@@ -73,7 +73,7 @@ MODEL_GETTER = Dict(
 FORMULATION_TO_KWARGS = Dict(
     :full_space => Dict(),
     :reduced_space => Dict(:reduced_space => true),
-    :gray_box => Dict(:gray_box => true, :hessian => true),
+    :gray_box => Dict(:gray_box => true, :hessian => true, :reduced_space => false),
     :vector_nonlinear_oracle => Dict(:vector_nonlinear_oracle => true, :hessian => true),
 )
 
@@ -81,16 +81,16 @@ MODEL_TO_NNS = Dict(
     "mnist" => [
         "mnist-tanh128nodes4layers.pt",
         "mnist-tanh512nodes4layers.pt",
-        #"mnist-tanh1024nodes4layers.pt",
-        #"mnist-tanh2048nodes4layers.pt",
-        #"mnist-tanh4096nodes4layers.pt",
-        ##"mnist-sigmoid8192nodes4layers.pt",
+        "mnist-tanh1024nodes4layers.pt",
+        "mnist-tanh2048nodes4layers.pt",
+        "mnist-tanh4096nodes4layers.pt",
+        #"mnist-sigmoid8192nodes4layers.pt",
     ],
     "scopf" => [
         joinpath("scopf", "100nodes3layers.pt"),
         joinpath("scopf", "500nodes5layers.pt"),
-        #joinpath("scopf", "1000nodes7layers.pt"),
-        #joinpath("scopf", "2000nodes20layers.pt"),
-        #joinpath("scopf", "4000nodes40layers.pt"),
+        joinpath("scopf", "1000nodes7layers.pt"),
+        joinpath("scopf", "2000nodes20layers.pt"),
+        joinpath("scopf", "4000nodes40layers.pt"),
     ],
 )
