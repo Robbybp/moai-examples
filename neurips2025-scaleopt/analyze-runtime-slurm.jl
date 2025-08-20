@@ -4,58 +4,18 @@ addprocs(SlurmManager())
 @everywhere println("ID: $(myid())")
 @everywhere println("Hostname: $(gethostname())")
 
+#@everywhere ENV["JULIA_CONDAPKG_BACKEND"] = "Null"
 @everywhere include("analyze-runtime.jl")
+@everywhere include("../pytorch.jl")
 
-# TODO: Does global data need to be defined @everywhere?
-#@everywhere begin
-#end
-
-devices = Dict(
-    :full_space => ["cpu"],
-    :vector_nonlinear_oracle => ["cpu", "cuda"],
-)
-
-model_names = ["mnist"]
-# TODO: These NNs will depend on the model. We will need to look them up.
-fnames = [
-    "mnist-tanh128nodes4layers.pt",
-    "mnist-tanh512nodes4layers.pt",
-    "mnist-tanh1024nodes4layers.pt",
-    "mnist-tanh2048nodes4layers.pt",
-    "mnist-tanh4096nodes4layers.pt",
-    "mnist-sigmoid8192nodes4layers.pt",
-]
-# In this experiment, the only "reduced-space" we care about is VNO.
-formulations = [
-    :full_space,
-    :vector_nonlinear_oracle,
-]
-nn_dir = joinpath(dirname(dirname(@__FILE__)), "nn-models")
-fpaths = map(f -> joinpath(nn_dir, f), fnames)
-
-NSAMPLES = 1
-
-#models = []
-#data = []
-
-inputs = [
-    (
-        model_name,
-        fpath,
-        formulation,
-        device,
-        sample,
-    )
-    for model_name in model_names
-    for fpath in fpaths
-    for formulation in formulations
-    for device in devices[formulation]
-    for sample in 1:NSAMPLES
-]
-inputs = [(i, input...) for (i, input) in enumerate(inputs)]
-n_elements = length(inputs)
-println("Running distributed sweep with $n_elements elements")
+# Does this global data need to be declared @everywhere?
+include("setup-compare-formulations.jl")
 results_dir = get_results_dir()
+
+# Only run the sweep if we're running this file directly
+if abspath(PROGRAM_FILE) == @__FILE__
+
+println("Running distributed sweep with $n_elements elements")
 @sync @distributed for (i, model_name, fpath, formulation, device, sample) in inputs
     println("SWEEP ELEMENT $i")
     println("----------------")
@@ -64,7 +24,19 @@ results_dir = get_results_dir()
     println("Formulation: $formulation")
     println("Device:      $device")
     println("Sample:      $sample")
-    args = (; index = i, model = model_name, NN = basename(fpath), formulation, device, sample)
+    println("CPU:         $(Sys.cpu_info()[1].model)")
+    println("GPU:         $(get_pytorch_device_name())")
+
+    args = (;
+        index = i,
+        model = model_name,
+        NN = basename(fpath),
+        formulation,
+        device,
+        cpu = Sys.cpu_info()[1].model,
+        gpu = get_pytorch_device_name(),
+        sample,
+    )
     _t = time()
     model = MODEL_GETTER[model_name](
         fpath;
@@ -79,7 +51,7 @@ results_dir = get_results_dir()
     info = merge(args, results, (; t_build_total))
 
     df = DataFrames.DataFrame([info])
-    fname = "runtime-$i.csv"
+    fname = "runtime-$(@sprintf("%02d", i)).csv"
     fpath = joinpath(results_dir, fname)
     println("Writing results for the following inputs to $fpath")
     println("Model:       $model_name")
@@ -90,20 +62,6 @@ results_dir = get_results_dir()
     CSV.write(fpath, df)
 end
 
-dfs = []
-for i in 1:n_elements
-    fname = "runtime-$(@sprintf("%02d", i)).csv"
-    fpath = joinpath(results_dir, fname)
-    if isfile(fpath)
-        df = DataFrames.DataFrame(CSV.File(fpath))
-        push!(dfs, df)
-    else
-        @warn "$fpath does not exist"
-    end
+include("collect-slurm-runtimes.jl")
+
 end
-df = reduce(vcat, dfs)
-tabledir = get_table_dir()
-fname = "runtime.csv"
-fpath = joinpath(tabledir, fname)
-println("Writing combined results to $fpath")
-CSV.write(fpath, df)

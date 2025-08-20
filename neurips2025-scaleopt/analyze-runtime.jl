@@ -54,14 +54,19 @@ function solve_model_with_ipopt(model)
         Ipopt.Optimizer,
         "linear_solver" => "ma57",
         "tol" => 1e-6,
+        "acceptable_tol" => 1e-5,
         "print_user_options" => "yes",
         "print_timing_statistics" => "yes",
     )
     JuMP.set_optimizer(model, optimizer)
     JuMP.optimize!(model)
+    # TODO: NaN these if solve isn't successful?
     t_solve = JuMP.solve_time(model)
     n_iterations = JuMP.barrier_iterations(model)
-    success = JuMP.is_solved_and_feasible(model)
+    success = (
+        JuMP.termination_status(model) in (JuMP.OPTIMAL, JuMP.ALMOST_OPTIMAL, JuMP.LOCALLY_SOLVED, JuMP.ALMOST_LOCALLY_SOLVED)
+        && JuMP.primal_status(model) in (JuMP.FEASIBLE_POINT, JuMP.NEARLY_FEASIBLE_POINT)
+    )
     # TODO: Combine these times with VNO timer
     objective_value = (success ? JuMP.objective_value(model) : NaN)
     timer = get_ipopt_solve_time(model)

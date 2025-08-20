@@ -135,6 +135,7 @@ function get_adversarial_model(
         gray_box = gray_box,
         vector_nonlinear_oracle = vector_nonlinear_oracle,
         hessian = true,
+        device,
     )
     dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Add predictor")
     # VNO only supports adding constraints as `y = NN(x)`.
