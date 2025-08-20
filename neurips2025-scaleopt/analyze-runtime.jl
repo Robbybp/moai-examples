@@ -80,6 +80,8 @@ solve time and iteration count differences between full-space and
 reduced-space (on CPU and GPU).
 """
 
+if abspath(PROGRAM_FILE) == @__FILE__
+
 # TODO: Add "cuda" if it is available
 devices = Dict(
     :full_space => ["cpu"],
@@ -145,3 +147,5 @@ fname = "runtime.csv"
 fpath = joinpath(tabledir, fname)
 println("Writing results to $fpath")
 CSV.write(fpath, df)
+
+end
