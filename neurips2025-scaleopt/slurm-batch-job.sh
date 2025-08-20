@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-#SBATCH --job-name=runtime-sweep
+#SBATCH --job-name=formulations-runtime
 #SBATCH --time=05:00:00
-#SBATCH --nodes=8
+#SBATCH --nodes=16
 #SBATCH --ntasks-per-node=1
 #SBATCH --exclusive
 #SBATCH --output="output/slurm-%A.out"
