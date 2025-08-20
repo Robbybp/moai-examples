@@ -1,3 +1,4 @@
+using Printf
 using Distributed, SlurmClusterManager
 addprocs(SlurmManager())
 @everywhere println("ID: $(myid())")
@@ -91,7 +92,7 @@ end
 
 dfs = []
 for i in 1:n_elements
-    fname = "runtime-$i.csv"
+    fname = "runtime-$(@sprintf("%02d", i)).csv"
     fpath = joinpath(results_dir, fname)
     if isfile(fpath)
         df = DataFrames.DataFrame(CSV.File(fpath))
