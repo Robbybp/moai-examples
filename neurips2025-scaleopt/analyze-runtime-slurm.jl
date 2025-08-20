@@ -4,7 +4,9 @@ addprocs(SlurmManager())
 @everywhere println("ID: $(myid())")
 @everywhere println("Hostname: $(gethostname())")
 
+#@everywhere ENV["JULIA_CONDAPKG_BACKEND"] = "Null"
 @everywhere include("analyze-runtime.jl")
+@everywhere include("../pytorch.jl")
 
 # Does this global data need to be declared @everywhere?
 include("setup-compare-formulations.jl")
@@ -22,7 +24,19 @@ println("Running distributed sweep with $n_elements elements")
     println("Formulation: $formulation")
     println("Device:      $device")
     println("Sample:      $sample")
-    args = (; index = i, model = model_name, NN = basename(fpath), formulation, device, sample)
+    println("CPU:         $(Sys.cpu_info()[1].model)")
+    println("GPU:         $(get_pytorch_device_name())")
+
+    args = (;
+        index = i,
+        model = model_name,
+        NN = basename(fpath),
+        formulation,
+        device,
+        cpu = Sys.cpu_info()[1].model,
+        gpu = get_pytorch_device_name(),
+        sample,
+    )
     _t = time()
     model = MODEL_GETTER[model_name](
         fpath;
@@ -37,7 +51,7 @@ println("Running distributed sweep with $n_elements elements")
     info = merge(args, results, (; t_build_total))
 
     df = DataFrames.DataFrame([info])
-    fname = "runtime-$i.csv"
+    fname = "runtime-$(@sprintf("%02d", i)).csv"
     fpath = joinpath(results_dir, fname)
     println("Writing results for the following inputs to $fpath")
     println("Model:       $model_name")
