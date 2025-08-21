@@ -3,8 +3,10 @@ ENV["JULIA_CONDAPKG_BACKEND"] = "Null"
 
 import MathOptAI
 import DataFrames
+import CSV
 
 include("../pytorch.jl")
+include("localconfig.jl")
 include("model-getter.jl")
 
 _isinstance(a, b) = Bool(PythonCall.pybuiltins.isinstance(a, b))
@@ -117,4 +119,9 @@ for model_name in model_names
     end
 end
 df = DataFrames.DataFrame(nn_data)
+tabledir = get_table_dir()
+fname = "nns.csv"
+fpath = joinpath(tabledir, fname)
+println("Writing results to $fpath")
+CSV.write(fpath, df)
 println(df)
