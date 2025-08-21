@@ -17,3 +17,8 @@ end
 function get_results_dir(; create = true)
     return _get_dir("results")
 end
+
+function get_nn_dir()
+    return joinpath(dirname(FILEDIR), "nn-models")
+end
+

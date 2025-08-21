@@ -50,7 +50,7 @@ function get_ipopt_solve_time(model)
     )
 end
 
-function solve_model_with_ipopt(model)
+function solve_model_with_ipopt(model; silent = false)
     optimizer = JuMP.optimizer_with_attributes(
         Ipopt.Optimizer,
         "linear_solver" => "ma57",
@@ -60,6 +60,9 @@ function solve_model_with_ipopt(model)
         "print_timing_statistics" => "yes",
     )
     JuMP.set_optimizer(model, optimizer)
+    if silent
+        JuMP.set_silent(model)
+    end
     JuMP.optimize!(model)
     # TODO: NaN these if solve isn't successful?
     t_solve = JuMP.solve_time(model)
@@ -75,6 +78,18 @@ function solve_model_with_ipopt(model)
     info = merge(info, timer)
     # TODO: Return solution
     return info
+end
+
+# NOTE: This can only be used after setup-compare-formulations.jl has been loaded
+function _precompile(model_name; kwargs...)
+    nnfname = MODEL_TO_PRECOMPILE_NN[model_name]
+    nnfpath = joinpath(get_nn_dir(), nnfname)
+    println("STARTING PRECOMPILATION RUN")
+    _t = time()
+    m = MODEL_GETTER[model_name](nnfpath; kwargs...)
+    solve_model_with_ipopt(m; silent = true)
+    println("PRECOMPILED IN $(time() - _t) SECONDS")
+    return
 end
 
 """The following is code to set up and execute the parameter sweep.

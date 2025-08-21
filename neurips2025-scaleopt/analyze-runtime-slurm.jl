@@ -16,7 +16,12 @@ results_dir = get_results_dir()
 if abspath(PROGRAM_FILE) == @__FILE__
 
 println("Running distributed sweep with $n_elements elements")
+SKIP = (10, 13, 28, 31)
 @sync @distributed for (i, model_name, fname, formulation, device, sample) in inputs
+    if i in SKIP
+        @warn "SKIPPING SWEEP ELEMENT $i, AS REQUESTED"
+        continue
+    end
     local fpath = joinpath(nn_dir, fname)
     println("SWEEP ELEMENT $i")
     println("----------------")
@@ -27,6 +32,8 @@ println("Running distributed sweep with $n_elements elements")
     println("Sample:      $sample")
     println("CPU:         $(Sys.cpu_info()[1].model)")
     println("GPU:         $(get_pytorch_device_name())")
+    # Device shouldn't really matter for precompilation...
+    _precompile(model_name; device, FORMULATION_TO_KWARGS[formulation]...)
 
     args = (;
         index = i,
