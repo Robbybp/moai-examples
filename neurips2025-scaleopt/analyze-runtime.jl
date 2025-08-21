@@ -94,7 +94,7 @@ include("setup-compare-formulations.jl")
 data = []
 for (index, model_name, fname, formulation, device, sample) in inputs
     # Note that nn_dir is defined in setup-compare-formulations.jl
-    fpath = joinpath(nn_dir, fname)
+    local fpath = joinpath(nn_dir, fname)
     println("LOOP ELEMENT $index / $n_elements")
     println("Model: $model_name")
     println("NN: $fpath")
