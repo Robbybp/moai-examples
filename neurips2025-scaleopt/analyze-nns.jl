@@ -113,7 +113,7 @@ for model_name in model_names
     for fname in MODEL_TO_NNS[model_name]
         fpath = joinpath(nn_dir, fname)
         res = analyze_nn(fpath)
-        inputs = (; fname)
+        inputs = (; model_name, fname)
         res = merge(inputs, res)
         push!(nn_data, res)
     end
