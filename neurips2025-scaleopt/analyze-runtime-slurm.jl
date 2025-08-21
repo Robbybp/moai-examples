@@ -4,19 +4,20 @@ addprocs(SlurmManager())
 @everywhere println("ID: $(myid())")
 @everywhere println("Hostname: $(gethostname())")
 
-#@everywhere ENV["JULIA_CONDAPKG_BACKEND"] = "Null"
+@everywhere ENV["JULIA_CONDAPKG_BACKEND"] = "Null"
+# Does this global data need to be declared @everywhere?
+@everywhere include("setup-compare-formulations.jl")
+
 @everywhere include("analyze-runtime.jl")
 @everywhere include("../pytorch.jl")
-
-# Does this global data need to be declared @everywhere?
-include("setup-compare-formulations.jl")
 results_dir = get_results_dir()
 
 # Only run the sweep if we're running this file directly
 if abspath(PROGRAM_FILE) == @__FILE__
 
 println("Running distributed sweep with $n_elements elements")
-@sync @distributed for (i, model_name, fpath, formulation, device, sample) in inputs
+@sync @distributed for (i, model_name, fname, formulation, device, sample) in inputs
+    local fpath = joinpath(nn_dir, fname)
     println("SWEEP ELEMENT $i")
     println("----------------")
     println("Model:       $model_name")
