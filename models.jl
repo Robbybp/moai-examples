@@ -3,6 +3,8 @@ import MathOptAI as MOAI
 
 include("formulation.jl")
 
+# TODO: Move this to another file. Probably nlpmodels.jl
+# TODO: Have x default to x0. This causes some tests to fail currently...
 function update_kkt!(
     kkt::MadNLP.AbstractKKTSystem,
     nlp::NLPModels.AbstractNLPModel;
