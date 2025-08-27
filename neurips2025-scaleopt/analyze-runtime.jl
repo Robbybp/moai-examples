@@ -117,7 +117,7 @@ for (index, model_name, fname, formulation, device, sample) in inputs
     println("Device: $device")
     args = (; model = model_name, NN = basename(fpath), formulation, device, sample)
     _t = time()
-    model = MODEL_GETTER[model_name](
+    model, formulation = MODEL_GETTER[model_name](
         fpath;
         device = device,
         sample_index = sample,

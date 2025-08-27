@@ -18,7 +18,7 @@ import DataFrames
 import CSV
 
 include("localconfig.jl")
-include("model-getter.jl")
+include("../model-getter.jl")
 
 function get_model_structure(model::JuMP.Model)
     nvar = length(JuMP.all_variables(model))
@@ -76,7 +76,7 @@ for model_name in model_names
             println("NN: $fpath")
             println("Formulation: $formulation")
             args = (; model = model_name, NN = basename(fpath), formulation)
-            model = MODEL_GETTER[model_name](fpath; FORMULATION_TO_KWARGS[formulation]...)
+            model, formulation = MODEL_GETTER[model_name](fpath; FORMULATION_TO_KWARGS[formulation]...)
             structure_info = get_model_structure(model)
             info = merge(args, structure_info)
             #push!(models, model)
