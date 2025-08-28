@@ -17,7 +17,7 @@ include("btsolver.jl")
 include("nlpmodels.jl")
 include("btsolver.jl")
 include("kkt-partition.jl")
-include("adversarial-image.jl")
+include("model-getter.jl")
 
 function make_square_model(nnfile)
     datadir = joinpath("data", "MNIST", "raw")
@@ -63,18 +63,26 @@ end
 #nnfile = joinpath("nn-models", "mnist-relu600nodes4layers.pt")
 #nnfile = joinpath("nn-models", "mnist-relu768nodes4layers.pt")
 #nnfile = joinpath("nn-models", "mnist-tanh1024nodes4layers.pt")
-nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
+#nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
+#nnfile = joinpath("nn-models", "mnist-tanh2048nodes4layers.pt")
 image_index = 7
 adversarial_label = 1
 threshold = 0.6
 _t = time()
 #m, y, formulation = make_square_model(nnfile)
-m, y, formulation = get_adversarial_model(
-    nnfile,
-    image_index,
-    adversarial_label,
-    threshold,
-)
+#m, y, formulation = get_adversarial_model(
+#    nnfile,
+#    image_index,
+#    adversarial_label,
+#    threshold,
+#)
+#nnfile = joinpath("nn-models", "scopf", "500nodes5layers.pt")
+#nnfile = joinpath("nn-models", "scopf", "1000nodes7layers.pt")
+#nnfile = joinpath("nn-models", "scopf", "relu100nodes3layers.pt")
+#nnfile = joinpath("nn-models", "scopf", "relu500nodes5layers.pt")
+#nnfile = joinpath("nn-models", "scopf", "relu1000nodes7layers.pt")
+nnfile = joinpath("nn-models", "scopf", "relu2000nodes20layers.pt")
+m, formulation = _get_scopf_model(nnfile)
 dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Make model")
 
 variables, constraints = get_vars_cons(formulation)
@@ -124,7 +132,7 @@ end
 
 println(m.moi_backend.optimizer.model.solver.kkt.linear_solver.timer)
 
-if false
+if true
     println()
     println("Solving with MA57")
     madnlp_ma57 = JuMP.optimizer_with_attributes(
