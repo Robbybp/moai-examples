@@ -21,4 +21,3 @@ end
 function get_nn_dir()
     return joinpath(dirname(FILEDIR), "nn-models")
 end
-
