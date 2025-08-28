@@ -79,10 +79,21 @@ function build_scopf(
         t_start = time()
         # NOTE: If we support other types of predictors, we may need
         # pop reduced_space and handle it separately.
+
+        reduced_space = get(surrogate_params, :reduced_space, false)
+        gray_box = get(surrogate_params, :gray_box, false)
+        vector_nonlinear_oracle = get(surrogate_params, :vector_nonlinear_oracle, false)
+        if reduced_space || gray_box || vector_nonlinear_oracle
+            config = Dict()
+        else
+            # If we are embedding ReLU in the full-space, use a relaxed complementarity-based ReLU
+            config = Dict(:ReLU => MOAI.ReLUQuadratic(relaxation_parameter = 1e-6))
+        end
         outputs, formulation = MOAI.add_predictor(
             pm.model,
             stability_surrogate,
             inputs;
+            config,
             surrogate_params...,
         )
         t_predictor = time() - t_start
