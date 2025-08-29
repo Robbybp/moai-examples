@@ -57,6 +57,9 @@ function make_square_model(nnfile)
     return m, y, formulation
 end
 
+#model_name = "mnist"
+model_name = "scopf"
+
 #nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
 #nnfile = joinpath("nn-models", "mnist-relu512nodes4layers.pt")
 #nnfile = joinpath("nn-models", "mnist-tanh512nodes4layers.pt")
@@ -65,24 +68,17 @@ end
 #nnfile = joinpath("nn-models", "mnist-tanh1024nodes4layers.pt")
 #nnfile = joinpath("nn-models", "mnist-relu1024nodes4layers.pt")
 #nnfile = joinpath("nn-models", "mnist-tanh2048nodes4layers.pt")
-image_index = 7
-adversarial_label = 1
-threshold = 0.6
-_t = time()
-#m, y, formulation = make_square_model(nnfile)
-#m, y, formulation = get_adversarial_model(
-#    nnfile,
-#    image_index,
-#    adversarial_label,
-#    threshold,
-#)
+
+#nnfile = joinpath("nn-models", "scopf", "100nodes3layers.pt")
 #nnfile = joinpath("nn-models", "scopf", "500nodes5layers.pt")
-#nnfile = joinpath("nn-models", "scopf", "1000nodes7layers.pt")
+nnfile = joinpath("nn-models", "scopf", "1000nodes7layers.pt")
 #nnfile = joinpath("nn-models", "scopf", "relu100nodes3layers.pt")
 #nnfile = joinpath("nn-models", "scopf", "relu500nodes5layers.pt")
 #nnfile = joinpath("nn-models", "scopf", "relu1000nodes7layers.pt")
-nnfile = joinpath("nn-models", "scopf", "relu2000nodes20layers.pt")
-m, formulation = _get_scopf_model(nnfile)
+#nnfile = joinpath("nn-models", "scopf", "relu2000nodes20layers.pt")
+
+_t = time()
+m, formulation = MODEL_GETTER[model_name](nnfile)
 dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Make model")
 
 variables, constraints = get_vars_cons(formulation)
@@ -104,6 +100,7 @@ madnlp_schur = JuMP.optimizer_with_attributes(
     #"richardson_acceptable_tol" => 1.0,
     #"inertia_correction_method" => MadNLP.InertiaIgnore,
     #"disable_garbage_collector" => true,
+
     "max_iter" => 10,
     "print_level" => MadNLP.TRACE,
 )
