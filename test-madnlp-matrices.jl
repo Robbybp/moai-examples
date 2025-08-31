@@ -17,8 +17,8 @@ model_name = "mnist"
 
 #nnfname = "mnist-relu1024nodes4layers.pt"
 #nnfname = "mnist-relu2048nodes4layers.pt"
-nnfname = "mnist-tanh1024nodes4layers.pt"
-#nnfname = "mnist-tanh2048nodes4layers.pt"
+#nnfname = "mnist-tanh1024nodes4layers.pt"
+nnfname = "mnist-tanh2048nodes4layers.pt"
 
 #nnfname = joinpath("scopf", "1000nodes7layers.pt")
 
@@ -109,6 +109,8 @@ rhs = MadNLP.primal_dual(madnlp.p)
 sol = copy(rhs)
 global _t = time()
 MadNLP.solve!(linear_solver, sol)
+refine_res = refine!(sol, linear_solver, rhs, max_iter = 20)
+display(refine_res)
 # At this point, I think I should just write my own iterative refinement...
 #richardson_opt = MadNLP.RichardsonOptions(; richardson_max_iter = 20, richardson_tol = 1e-8, richardson_acceptable_tol = 1e-8)
 #iterative_refiner = MadNLP.RichardsonIterator(

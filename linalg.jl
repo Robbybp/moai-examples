@@ -615,3 +615,36 @@ function remove_diagonal_nonzeros(
     dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] sparse")
     return newcsc
 end
+
+function refine!(
+    sol::Vector{Float64},
+    solver::MadNLP.AbstractLinearSolver,
+    rhs::Vector{Float64};
+    tol::Float64 = 1e-8,
+    max_iter::Int = 10,
+)
+    matrix = fill_upper_triangle(solver.csc)
+    residual = rhs - matrix * sol
+    resid_norm = LinearAlgebra.norm(residual, Inf)
+
+    iter_count = 0
+    if resid_norm <= tol
+        return (; success = true, iterations = iter_count, residual_norm = resid_norm)
+    end
+    for i in 1:max_iter
+        correction = copy(residual)
+        MadNLP.solve!(solver, correction)
+        sol .+= correction
+        residual = rhs - matrix * sol
+        resid_norm = LinearAlgebra.norm(residual, Inf)
+        iter_count = i
+        if resid_norm <= tol
+            break
+        end
+    end
+    return (;
+        success = resid_norm <= tol,
+        iterations = iter_count,
+        residual_norm = resid_norm,
+    )
+end
