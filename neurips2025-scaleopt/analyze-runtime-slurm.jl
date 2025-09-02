@@ -16,9 +16,12 @@ results_dir = get_results_dir()
 if abspath(PROGRAM_FILE) == @__FILE__
 
 println("Running distributed sweep with $n_elements elements")
-SKIP = (10, 13, 28, 31)
+SKIP = (10, 13, 16, 28, 31, 7, 25)
+#RUN = (17, 18, 26, 27, 29, 30, 32, 33)
+RUN = (7, 25)
 @sync @distributed for (i, model_name, fname, formulation, device, sample) in inputs
-    if i in SKIP
+    if !(i in RUN)
+    #if i in SKIP
         @warn "SKIPPING SWEEP ELEMENT $i, AS REQUESTED"
         continue
     end
