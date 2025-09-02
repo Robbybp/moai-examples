@@ -623,9 +623,13 @@ function refine!(
     tol::Float64 = 1e-8,
     max_iter::Int = 10,
 )
+    println("Starting iterative refinement")
+    _t = time()
     matrix = fill_upper_triangle(solver.csc)
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Get full symmetric matrix")
     residual = rhs - matrix * sol
     resid_norm = LinearAlgebra.norm(residual, Inf)
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Compute residual")
 
     iter_count = 0
     if resid_norm <= tol
@@ -634,9 +638,11 @@ function refine!(
     for i in 1:max_iter
         correction = copy(residual)
         MadNLP.solve!(solver, correction)
+        dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Backsolve")
         sol .+= correction
         residual = rhs - matrix * sol
         resid_norm = LinearAlgebra.norm(residual, Inf)
+        dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Update solution and compute residual")
         iter_count = i
         if resid_norm <= tol
             break
