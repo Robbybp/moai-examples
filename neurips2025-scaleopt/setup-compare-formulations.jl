@@ -17,7 +17,7 @@ devices = Dict(
     :full_space => ["cpu"],
     :vector_nonlinear_oracle => [
         "cpu",
-        #"cuda",
+        "cuda",
     ],
 )
 
