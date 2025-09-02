@@ -11,7 +11,7 @@ I'm using for this sweep.
 # TODO: Should this be moved into localconfig.jl?
 
 # This is where MODEL_TO_NNS is defined
-include("model-getter.jl")
+include("../model-getter.jl")
 
 devices = Dict(
     :full_space => ["cpu"],

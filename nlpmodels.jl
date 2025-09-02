@@ -79,7 +79,11 @@ function get_kkt_indices(model::JuMP.Model, variables::Vector, constraints::Vect
     return kkt_indices
 end
 
-function get_kkt(model::JuMP.Model; Solver=MadNLPHSL.Ma27Solver)
+function get_kkt(
+    model::JuMP.Model;
+    Solver=MadNLPHSL.Ma27Solver,
+    opt_linear_solver = MadNLP.default_options(Solver),
+)
     nlp = NLPModelsJuMP.MathOptNLPModel(model)
     ind_cons = MadNLP.get_index_constraints(nlp)
     cb = MadNLP.create_callback(MadNLP.SparseCallback, nlp)
@@ -87,7 +91,8 @@ function get_kkt(model::JuMP.Model; Solver=MadNLPHSL.Ma27Solver)
         MadNLP.SparseKKTSystem,
         cb,
         ind_cons,
-        Solver,
+        Solver;
+        opt_linear_solver,
     )
     MadNLP.initialize!(kkt_system)
     update_kkt!(kkt_system, nlp)

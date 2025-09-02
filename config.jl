@@ -58,3 +58,17 @@ function get_profile_cli_settings()
         Dict(:help=>"ID of NN to use. Default loops over all NNs."),
     )
 end
+
+function _get_dir(name::String; create = true)
+    dir = joinpath(FILEDIR, name)
+    if isfile(dir)
+        error("$dir is already a file")
+    elseif !isdir(dir) && create
+        mkdir(dir)
+    end
+    return dir
+end
+
+function get_nn_dir()
+    return joinpath(FILEDIR, "nn-models")
+end

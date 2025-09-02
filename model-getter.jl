@@ -1,6 +1,6 @@
 # TODO: Move model getter to config file or something
-include("../adversarial-image.jl")
-include("../scopf/model.jl")
+include("adversarial-image.jl")
+include("scopf/model.jl")
 
 """Model functions are expected to accept the following parameters:
 - NN (path to .pt file)
@@ -42,8 +42,11 @@ function _get_adversarial_image_model(nnfile::String; sample_index = 1, kwargs..
     @assert 1 <= image_index <= 10_000
     @assert 0 <= adversarial_label <= 9
     @assert 0.0 <= threshold <= 1.0
-    model, _ = get_adversarial_model(nnfile, image_index, adversarial_label, threshold; kwargs...)
-    return model
+    model, y, formulation = get_adversarial_model(nnfile, image_index, adversarial_label, threshold; kwargs...)
+    return (;
+        model = model,
+        formulation = formulation,
+    )
 end
 
 import PowerModels
@@ -63,7 +66,10 @@ function _get_scopf_model(nnfile::String; sample_index = 1, kwargs...)
     stability_surrogate = MOAI.PytorchModel(nnfile)
     surrogate_params = Dict{Symbol,Any}(kwargs)
     pm, info = build_scopf(pmdata; stability_surrogate, surrogate_params)
-    return pm.model
+    return (;
+        model = pm.model,
+        formulation = info.surrogate_formulation,
+    )
 end
 MODEL_GETTER = Dict(
     "mnist" => _get_adversarial_image_model,
@@ -75,27 +81,4 @@ FORMULATION_TO_KWARGS = Dict(
     :reduced_space => Dict(:reduced_space => true),
     :gray_box => Dict(:gray_box => true, :hessian => true, :reduced_space => false),
     :vector_nonlinear_oracle => Dict(:vector_nonlinear_oracle => true, :hessian => true),
-)
-
-MODEL_TO_NNS = Dict(
-    "mnist" => [
-        "mnist-tanh128nodes4layers.pt",
-        "mnist-tanh512nodes4layers.pt",
-        "mnist-tanh1024nodes4layers.pt",
-        "mnist-tanh2048nodes4layers.pt",
-        "mnist-tanh4096nodes4layers.pt",
-        "mnist-sigmoid8192nodes4layers.pt",
-    ],
-    "scopf" => [
-        joinpath("scopf", "100nodes3layers.pt"),
-        joinpath("scopf", "500nodes5layers.pt"),
-        joinpath("scopf", "1000nodes7layers.pt"),
-        joinpath("scopf", "2000nodes20layers.pt"),
-        joinpath("scopf", "4000nodes40layers.pt"),
-    ],
-)
-
-MODEL_TO_PRECOMPILE_NN = Dict(
-    "mnist" => "mnist-tanh128nodes4layers.pt",
-    "scopf" => joinpath("scopf", "100nodes3layers.pt"),
 )

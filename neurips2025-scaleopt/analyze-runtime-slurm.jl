@@ -49,7 +49,7 @@ RUN = (7, 25)
         sample,
     )
     _t = time()
-    model = MODEL_GETTER[model_name](
+    model, formulation = MODEL_GETTER[model_name](
         fpath;
         device = device,
         sample_index = sample,

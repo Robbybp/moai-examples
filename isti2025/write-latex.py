@@ -25,6 +25,13 @@ COL_HEADER_MAP = {
     "percent-jacobian": "Jacobian",
     "percent-hessian": "Hessian",
     "percent-solver": "Solver",
+
+    "solver": "Solver",
+    "nn": "NN param.".rjust(9),
+    "t_init": "Initialize",
+    "t_factorize": "Factorize",
+    "t_solve": "Backsolve",
+    "speedup": "Speedup",
 }
 def _col_to_header(col):
     if col in COL_HEADER_MAP:
@@ -56,6 +63,13 @@ def _parse_activations(act_str):
         if act in act_str:
             activations.append(act)
     return "+".join(activations)
+
+
+def _parse_solver(name):
+    if "Ma57" in name:
+        return "Baseline"
+    if name == "SchurComplementSolver":
+        return "Ours"
 
 
 def _get_nparam(fname):
@@ -96,23 +110,31 @@ def _parse_formulation(form):
     raise ValueError("Unrecognized formulation")
 
 
-def _format_float(n):
-    # These are mostly times, where precision for small numbers
-    # is not important.
+def _format_time(n):
+    # For times, precision for small numbers is not important
+    # or meaningful
     if n > 0.9:
         return str(round(n))
     elif n > 0.09:
         return str(round(n, 1))
-    else:
+    elif n > 0.005:
         return str(round(n, 2))
-
-
-def _format_objective(n):
-    # We want higher precision for small-ish numbers, here
-    if n >= 10:
-        return str(round(n))
     else:
+        return "$< 0.01$"
+
+
+def _format_float(n):
+    if n is None:
+        return "--"
+    # We want higher precision for small-ish numbers, here
+    elif n >= 10:
+        return str(round(n))
+    elif n >= 1:
         return str(round(n, 1))
+    elif n >= 0.1:
+        return str(round(n, 2))
+    else:
+        return "%1.1E" % n
 
 
 COL_FORMATTER = {
@@ -124,43 +146,71 @@ COL_FORMATTER = {
     "n_parameters": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["n_parameters"])),
     "activations": lambda a: _parse_activations(a).rjust(15),
     "NN": lambda n: _format_int(_get_nparam(n)).rjust(9),
+    "nn": lambda n: _format_int(_get_nparam(n)).rjust(9),
     "formulation": lambda n: _parse_formulation(n).rjust(13),
     "nvar": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["nvar"])),
     "ncon": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["ncon"])),
     "jnnz": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["jnnz"])),
     "hnnz": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["hnnz"])),
     "device": lambda dev: ("CPU" if dev=="cpu" else "CPU+GPU").rjust(8),
-    "t_solve_total": lambda n: _format_float(n).rjust(14),
+    "t_solve_total": lambda n: _format_time(n).rjust(14),
     "n_iterations": lambda n: str(n).rjust(7),
-    "objective_value": lambda v: _format_objective(v).rjust(9),
+    "objective_value": lambda v: _format_float(v).rjust(9),
+
+    "solver": lambda n: _parse_solver(n).rjust(8),
+    "t_init":      lambda n: _format_time(n).rjust(10),
+    "t_factorize": lambda n: _format_time(n).rjust(9),
+    "t_solve":     lambda n: _format_time(n).rjust(9),
 }
 def _format_item(col, item):
     return COL_FORMATTER.get(col, str)(item)
 
 
-CALCULATE = {
-    "time_per_iteration": lambda row: _format_float(row["t_solve_total"] / row["n_iterations"] if row["n_iterations"] > 0 else float("nan")).rjust(14),
-    "percent-function": lambda row: _format_float(row["t_eval_function"] / row["t_solve_total"]*100).rjust(8),
-    "percent-jacobian": lambda row: _format_float(row["t_eval_jacobian"] / row["t_solve_total"]*100).rjust(8),
-    "percent-hessian": lambda row: _format_float(row["t_eval_hessian"] / row["t_solve_total"]*100).rjust(7),
-    "percent-solver": lambda row: _format_float((row["t_solve_total"] - row["t_eval_function"] - row["t_eval_jacobian"] - row["t_eval_hessian"]) / row["t_solve_total"]*100).rjust(6),
+CALCULATE_FROM_ROW = {
+    "time_per_iteration": lambda row: _format_time(row["t_solve_total"] / row["n_iterations"] if row["n_iterations"] > 0 else float("nan")).rjust(14),
+    "percent-function": lambda row: _format_time(row["t_eval_function"] / row["t_solve_total"]*100).rjust(8),
+    "percent-jacobian": lambda row: _format_time(row["t_eval_jacobian"] / row["t_solve_total"]*100).rjust(8),
+    "percent-hessian": lambda row: _format_time(row["t_eval_hessian"] / row["t_solve_total"]*100).rjust(7),
+    "percent-solver": lambda row: _format_time((row["t_solve_total"] - row["t_eval_function"] - row["t_eval_jacobian"] - row["t_eval_hessian"]) / row["t_solve_total"]*100).rjust(6),
+}
+
+
+def _calculate_speedup(df, row):
+    # Speedup of this row's factorization + backsolve compared to MA57
+    # Note that parsing the entire DF here leads to O(n^2) time
+    if row["solver"] == "MadNLPHSL.Ma57Solver":
+        return None
+    t_row = row["t_factorize"] + row["t_solve"]
+    baseline_row = df[df["model"] == row["model"]][df["nn"] == row["nn"]][df["solver"] == "MadNLPHSL.Ma57Solver"].iloc[0]
+    t_baseline = baseline_row["t_factorize"] + baseline_row["t_solve"]
+    speedup = t_baseline / t_row
+    return speedup
+
+
+CALCULATE_FROM_DF = {
+    "speedup": lambda df, row: _format_float(_calculate_speedup(df, row)).rjust(7),
 }
 
 
 def df_to_latex(df, columns=None):
     if columns is None:
         columns = list(df.columns)
-    lines = [list(map(_col_to_header, columns))]
+    lines = [[r"\toprule"]]
+    lines.append(list(map(_col_to_header, columns)))
+    lines.append([r"\midrule"])
     for i, row in df.iterrows():
         line = []
         for col in columns:
             if col in row:
                 item_str = _format_item(col, row[col])
+            elif col in CALCULATE_FROM_DF:
+                item_str = CALCULATE_FROM_DF[col](df, row)
             else:
                 # Calculate the value from this row of the table
-                item_str = CALCULATE[col](row)
+                item_str = CALCULATE_FROM_ROW[col](row)
             line.append(item_str)
         lines.append(line)
+    lines.append([r"\bottomrule"])
 
     lines_str = [" & ".join(line) + " \\\\\n" for line in lines]
     table_str = "".join(lines_str)
@@ -179,14 +229,8 @@ def _structure_df_to_latex(df):
 
 
 def _runtime_df_to_latex(df):
-    df = df.sort_values(by=["model", "formulation", "device"])
-    columns = ["model", "formulation", "device", "NN", "t_solve_total", "n_iterations", "time_per_iteration", "objective_value"]
-    return df_to_latex(df, columns=columns)
-
-
-def _runtime_df_to_solvetime_breakdown(df):
-    df = df.sort_values(by=["model", "formulation", "device"])
-    columns = ["model", "formulation", "NN", "device", "t_solve_total", "percent-function", "percent-jacobian", "percent-hessian", "percent-solver"]
+    df = df.sort_values(by=["model", "solver"])
+    columns = ["model", "solver", "nn", "t_init", "t_factorize", "t_solve", "speedup"]
     return df_to_latex(df, columns=columns)
 
 
@@ -210,8 +254,6 @@ def main(args):
         table_str = _structure_df_to_latex(df)
     elif "runtime" in args.input_fpath and "structure" not in args.input_fpath and "nns" not in args.input_fpath:
         table_str = _runtime_df_to_latex(df)
-        breakdown_table_str = _runtime_df_to_solvetime_breakdown(df)
-        _write_table(args, breakdown_table_str, suffix="-breakdown")
     else:
         raise ValueError("Cannot infer type of table from filename")
     _write_table(args, table_str)
