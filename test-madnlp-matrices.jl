@@ -11,127 +11,135 @@ include("model-getter.jl")
 include("models.jl") # Necessary for update_kkt!...
 include("nlpmodels.jl")
 
+function factorize_and_solve_model(
+    model::JuMP.Model,
+    formulation,
+    Solver::Type;
+    opt::Union{MadNLP.AbstractOptions,Nothing} = nothing,
+    nsamples::Int = 1,
+    silent = false,
+)
+    _t = time()
+    pivot_vars, pivot_cons = get_vars_cons(formulation)
+    pivot_indices = get_kkt_indices(model, pivot_vars, pivot_cons)
+    pivot_indices = convert(Vector{Int32}, pivot_indices)
+    blocks = partition_indices_by_layer(model, formulation; indices = pivot_indices)
+    pivot_solver_opt = BlockTriangularOptions(; blocks)
+    madnlp_options = Dict{Symbol,Any}(
+        :ReducedSolver => MadNLPHSL.Ma57Solver,
+        :PivotSolver => BlockTriangularSolver,
+        :pivot_indices => pivot_indices,
+        :pivot_solver_opt => pivot_solver_opt,
+    )
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Parse formulation")
+
+    if opt === nothing && Solver === SchurComplementSolver
+        opt_linear_solver = SchurComplementOptions(; madnlp_options...)
+    elseif opt === nothing
+        opt_linear_solver = MadNLP.default_options(Solver)
+    end
+    _t = time()
+    # MadNLP must always use the same linear solver, otherwise the matrices
+    # we end up with will be slightly different between different solvers.
+    #
+    # We initialize MadNLP with max_iter = 0, then proceed with the solve one
+    # iteration at a time up to the number of samples specified.
+    nlp = NLPModelsJuMP.MathOptNLPModel(model)
+    madnlp = MadNLP.MadNLPSolver(
+        nlp;
+        tol = 1e-6,
+        print_level = silent ? MadNLP.ERROR : MadNLP.TRACE,
+        max_iter = 0,
+        linear_solver = SchurComplementSolver,
+        madnlp_options...,
+    )
+    MadNLP.initialize!(madnlp)
+    kkt_system = madnlp.kkt
+    kkt_matrix = MadNLP.get_kkt(kkt_system)
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Initialize MadNLP")
+
+    # For some reason, using kkt_system.linear_solver yields an error when I factorize...
+    _t = time()
+    linear_solver = Solver(kkt_matrix; opt = opt_linear_solver)
+    t_init = time() - _t; println("[$(@sprintf("%1.2f", t_init))] Initialize linear solver")
+
+    if !silent
+        println(MadNLP.introduce(linear_solver))
+        display(linear_solver.csc)
+    end
+
+    results = []
+    for i in 1:nsamples
+        println("SAMPLE = $i")
+        # Solve with MadNLP up to max_iter
+        MadNLP.regular!(madnlp)
+        # *After the solve* advance the iteration count
+        madnlp.opt.max_iter += 1
+        # If we solve the problem before the final sample, all the following
+        # matrices will be identical, biasing our "distribution".
+        @assert i == nsamples || madnlp.status != MadNLP.SOLVE_SUCCEEDED
+
+        # This should be a no-op, but just to be sure that this has been updated:
+        linear_solver.csc.nzval .= MadNLP.get_kkt(madnlp.kkt).nzval
+
+        _t = time()
+        MadNLP.factorize!(linear_solver)
+        inertia = MadNLP.inertia(linear_solver)
+        npos, nzero, nneg = inertia
+        t_factorize = time() - _t
+
+        # Get the KKT system RHS from MadNLP
+        rhs = MadNLP.primal_dual(madnlp.p)
+        sol = copy(rhs)
+        _t = time()
+        MadNLP.solve!(linear_solver, sol)
+        # TODO: Allow specification of these iterative refinement parameters
+        refine_res = refine!(sol, linear_solver, rhs, max_iter = 20, tol = 1e-5)
+        t_solve = time() - _t
+
+        full_kkt = fill_upper_triangle(kkt_matrix)
+        residual = maximum(abs.(full_kkt * sol - rhs))
+        println("residual = $residual")
+
+        res = (;
+            t_init,
+            t_factorize,
+            t_solve,
+            nneg_eig = nneg,
+            residual,
+            refine_success = refine_res.success,
+            refine_iter = refine_res.iterations,
+        )
+        if !silent
+            println("SAMPLE $i RESULTS:")
+            println(res)
+        end
+        push!(results, res)
+    end
+    return results
+end
+
 # TODO: Make this a function parameterized by model and NN
-#model_name = "scopf"
-model_name = "mnist"
+#model_name = "mnist"
+model_name = "scopf"
 
 #nnfname = "mnist-relu1024nodes4layers.pt"
 #nnfname = "mnist-relu2048nodes4layers.pt"
 #nnfname = "mnist-tanh1024nodes4layers.pt"
-nnfname = "mnist-tanh2048nodes4layers.pt"
+#nnfname = "mnist-tanh2048nodes4layers.pt"
 
 #nnfname = joinpath("scopf", "1000nodes7layers.pt")
+nnfname = joinpath("scopf", "1500nodes10layers.pt")
 
 nnfpath = joinpath("nn-models", nnfname)
 _t = time()
 model, formulation = MODEL_GETTER[model_name](nnfpath)
 dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Make model")
 
-Solver = SchurComplementSolver
-#Solver = MadNLPHSL.Ma57Solver
-
-# TODO: This should be a one-liner: model, formulation -> options
-if Solver === SchurComplementSolver
-    pivot_vars, pivot_cons = get_vars_cons(formulation)
-    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Get vars/cons from formulation")
-    pivot_indices = get_kkt_indices(model, pivot_vars, pivot_cons)
-    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Get KKT indices")
-    pivot_indices = convert(Vector{Int32}, pivot_indices)
-    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Convert to Int32")
-    blocks = partition_indices_by_layer(model, formulation; indices = pivot_indices)
-    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Partition by layer")
-    pivot_solver_opt = BlockTriangularOptions(; blocks)
-    options = Dict{Symbol,Any}(
-        :ReducedSolver => MadNLPHSL.Ma57Solver,
-        :PivotSolver => BlockTriangularSolver,
-        :pivot_indices => pivot_indices,
-        :pivot_solver_opt => pivot_solver_opt,
-    )
-    opt_linear_solver = SchurComplementOptions(; options...)
-    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Get Schur options")
-else
-    options = Dict{Symbol,Any}()
-    opt_linear_solver = MadNLP.default_options(Solver)
-end
-
-# Note that this involves instantiating a linear solver, so it will be very slow
-# for large models, especially if we choose the wrong solver!
-#nlp, kkt_system, kkt_matrix = get_kkt(model; Solver, opt_linear_solver)
-# ^ This is actually unnecessary; all I need is the nlp
-nlp = NLPModelsJuMP.MathOptNLPModel(model)
-dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Get KKT matrix")
-
-# This should reproduce exactly what we get in MadNLP.
-# This does appear to give me the same performance profile I see in MadNLP.
-# Note that the initialize! step is very important
-madnlp = MadNLP.MadNLPSolver(
-    nlp;
-    tol = 1e-6,
-    print_level = MadNLP.TRACE,
-    max_iter = 0,
-    linear_solver = Solver,
-    options...,
-)
-#MadNLP.initialize!(madnlp)
-stats = MadNLP.MadNLPExecutionStats(madnlp)
-MadNLP.solve!(nlp, madnlp, stats)
-kkt_system = madnlp.kkt
-# Give us some primal regularization
-# This doesn't really seem to help
-#kkt_system.pr_diag .+= 1.0
-# Transfer these values to the CSC matrix
-#MadNLP.build_kkt!(kkt_system)
-kkt_matrix = MadNLP.get_kkt(kkt_system)
-
-display(kkt_matrix)
-ave_nzmag = sum(abs.(kkt_matrix.nzval)) / length(kkt_matrix.nzval)
-println("Average NZ magnitude: $ave_nzmag")
-
-# We already have an initialized linear solver, but I'm going to initialize
-# a new one to make sure I can time its initialization in isolation.
-
-global _t = time()
-linear_solver = Solver(kkt_matrix; opt = opt_linear_solver)
-t_init = time() - _t; println("[$(@sprintf("%1.2f", t_init))] Initialize KKT System (and linear solver)")
-println(MadNLP.introduce(linear_solver))
-
-global _t = time()
-MadNLP.factorize!(linear_solver)
-t_factorize = time() - _t
-
-# TODO: use a reasonable RHS by actually evaluating the constraints and
-# Lagrangian?
-#rhs = i .* Vector{Float64}(1:kkt_matrix.m)
-#rhs = randn(kkt_matrix.m)
-#
-# I think `p` is the correct KKT RHS...
-rhs = MadNLP.primal_dual(madnlp.p)
-sol = copy(rhs)
-global _t = time()
-MadNLP.solve!(linear_solver, sol)
-refine_res = refine!(sol, linear_solver, rhs, max_iter = 20)
-display(refine_res)
-# At this point, I think I should just write my own iterative refinement...
-#richardson_opt = MadNLP.RichardsonOptions(; richardson_max_iter = 20, richardson_tol = 1e-8, richardson_acceptable_tol = 1e-8)
-#iterative_refiner = MadNLP.RichardsonIterator(
-#    kkt_system;
-#    opt = richardson_opt,
-#    cnt = MadNLP.MadNLPCounters(start_time = time()),
-#    logger = MadNLP.MadNLPLogger(MadNLP.TRACE, MadNLP.TRACE, nothing),
-#)
-#MadNLP.solve_refine!(madnlp.d, iterative_refiner, madnlp.p, madnlp._w4)
-#sol .= MadNLP.primal_dual(madnlp.d)
-#println(iterative_refiner.cnt)
-t_solve = time() - _t
-
-full_kkt = fill_upper_triangle(kkt_matrix)
-abs_residual = maximum(abs.(full_kkt * sol - rhs))
-println("residual = $abs_residual")
-
-println("T. init.:     $t_init")
-println("T. factorize: $t_factorize")
-println("T. solve:     $t_solve")
-println("Resid.:       $abs_residual")
+res_schur = factorize_and_solve_model(model, formulation, SchurComplementSolver)
+res_ma57 = factorize_and_solve_model(model, formulation, MadNLPHSL.Ma57Solver)
+println(res_schur)
+println(res_ma57)
 
 # This has the advantage that, once I've extracted the matrices, I can
 # extract whatever information I want. The downside is that I have to
