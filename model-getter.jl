@@ -42,6 +42,7 @@ function _get_adversarial_image_model(nnfile::String; sample_index = 1, kwargs..
     @assert 1 <= image_index <= 10_000
     @assert 0 <= adversarial_label <= 9
     @assert 0.0 <= threshold <= 1.0
+    println("Building model with NN from $nnfile")
     model, y, formulation = get_adversarial_model(nnfile, image_index, adversarial_label, threshold; kwargs...)
     return (;
         model = model,
