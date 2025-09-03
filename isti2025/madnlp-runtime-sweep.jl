@@ -94,6 +94,7 @@ function factorize_and_solve_model(
         _t = time()
         MadNLP.factorize!(linear_solver)
         inertia = MadNLP.inertia(linear_solver)
+        npos, nzero, nneg = inertia
         t_factorize = time() - _t
 
         # Get the KKT system RHS from MadNLP
@@ -113,7 +114,7 @@ function factorize_and_solve_model(
             t_init,
             t_factorize,
             t_solve,
-            inertia,
+            nneg_eig = nneg,
             residual,
             refine_success = refine_res.success,
             refine_iter = refine_res.iterations,
@@ -129,7 +130,7 @@ end
 
 model_names = [
     "mnist",
-    #"scopf",
+    "scopf",
 ]
 
 linear_solvers = [
@@ -155,7 +156,7 @@ data = []
 for model_name in model_names
     for nnfname in MODEL_TO_NNS[model_name]
         nnfpath = joinpath(get_nn_dir(), nnfname)
-        model, formulation = MODEL_GETTER[model_name](nnfpath; sample_index = 2)
+        model, formulation = MODEL_GETTER[model_name](nnfpath; sample_index = 1)
         for SolverType in linear_solvers
             println("Starting trial with following parameters:")
             println("Model:      $model_name")
