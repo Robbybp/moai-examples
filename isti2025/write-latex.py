@@ -28,10 +28,14 @@ COL_HEADER_MAP = {
 
     "solver": "Solver",
     "nn": "NN param.".rjust(9),
+    "nn-param": "NN param.".rjust(9),
     "t_init": "Initialize",
     "t_factorize": "Factorize",
     "t_solve": "Backsolve",
     "speedup": "Speedup",
+    "sample": "Sample",
+    "residual": "Residual",
+    "refine_iter": "Refinement iter.",
 }
 def _col_to_header(col):
     if col in COL_HEADER_MAP:
@@ -48,6 +52,7 @@ def _fname_to_model(fname):
 
 
 def _format_int(n):
+    n = round(n)
     if n >= 10**6:
         return str(n // 10**6)+"M"
     elif n >= 10**3:
@@ -67,7 +72,7 @@ def _parse_activations(act_str):
 
 def _parse_solver(name):
     if "Ma57" in name:
-        return "Baseline"
+        return "MA57"
     if name == "SchurComplementSolver":
         return "Ours"
 
@@ -87,15 +92,17 @@ def _get_nparam(fname):
         if "8192nodes" in fname:
             return 274980874
     else:
-        if "100nodes" in fname:
+        if "100nodes3layers" in fname:
             return 15537
-        if "500nodes" in fname:
+        if "500nodes5layers" in fname:
             return 578537
-        if "1000nodes" in fname:
+        if "1000nodes7layers" in fname:
             return 4159037
-        if "2000nodes" in fname:
+        if "1500nodes10layers" in fname:
+            return 15993037
+        if "2000nodes20layers" in fname:
             return 68344037
-        if "4000nodes" in fname:
+        if "4000nodes40layers" in fname:
             return 592768037
     raise ValueError("Unrecognized NN")
 
@@ -157,10 +164,14 @@ COL_FORMATTER = {
     "n_iterations": lambda n: str(n).rjust(7),
     "objective_value": lambda v: _format_float(v).rjust(9),
 
-    "solver": lambda n: _parse_solver(n).rjust(8),
+    "solver": lambda n: _parse_solver(n).rjust(6),
     "t_init":      lambda n: _format_time(n).rjust(10),
     "t_factorize": lambda n: _format_time(n).rjust(9),
     "t_solve":     lambda n: _format_time(n).rjust(9),
+    "sample": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["sample"])),
+    "residual": lambda n: _format_float(n).rjust(8),
+    "refine_iter": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["refine_iter"])),
+    "nn-param": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["nn-param"])),
 }
 def _format_item(col, item):
     return COL_FORMATTER.get(col, str)(item)
@@ -181,7 +192,11 @@ def _calculate_speedup(df, row):
     if row["solver"] == "MadNLPHSL.Ma57Solver":
         return None
     t_row = row["t_factorize"] + row["t_solve"]
-    baseline_row = df[df["model"] == row["model"]][df["nn"] == row["nn"]][df["solver"] == "MadNLPHSL.Ma57Solver"].iloc[0]
+    try:
+        baseline_row = df[df["model"] == row["model"]][df["nn"] == row["nn"]][df["sample"]==row["sample"]][df["solver"] == "MadNLPHSL.Ma57Solver"].iloc[0]
+    except KeyError:
+        # ...
+        baseline_row = df[df["model"] == row["model"]][df["nn-param"] == row["nn-param"]][df["solver"] == "MadNLPHSL.Ma57Solver"].iloc[0]
     t_baseline = baseline_row["t_factorize"] + baseline_row["t_solve"]
     speedup = t_baseline / t_row
     return speedup
@@ -230,7 +245,13 @@ def _structure_df_to_latex(df):
 
 def _runtime_df_to_latex(df):
     df = df.sort_values(by=["model", "solver"])
-    columns = ["model", "solver", "nn", "t_init", "t_factorize", "t_solve", "speedup"]
+    columns = ["model", "solver", "nn", "sample", "t_init", "t_factorize", "t_solve", "residual", "refine_iter", "speedup"]
+    return df_to_latex(df, columns=columns)
+
+
+def _runtime_summary_df_to_latex(df):
+    df = df.sort_values(by=["model", "solver"])
+    columns = ["model", "solver", "nn-param", "t_init", "t_factorize", "t_solve", "residual", "refine_iter", "speedup"]
     return df_to_latex(df, columns=columns)
 
 
@@ -252,6 +273,8 @@ def main(args):
         table_str = _nns_df_to_latex(df)
     elif "structure" in args.input_fpath and "nns" not in args.input_fpath and "runtime" not in args.input_fpath:
         table_str = _structure_df_to_latex(df)
+    elif "runtime-summary" in args.input_fpath and "structure" not in args.input_fpath and "nns" not in args.input_fpath:
+        table_str = _runtime_summary_df_to_latex(df)
     elif "runtime" in args.input_fpath and "structure" not in args.input_fpath and "nns" not in args.input_fpath:
         table_str = _runtime_df_to_latex(df)
     else:
