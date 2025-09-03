@@ -1,3 +1,4 @@
+include("../config.jl")
 function get_table_dir()
     # ... _get_dir uses its own directory... this is not really what I want.
     # This isn't horrible, but it feels like it will get confusing.
