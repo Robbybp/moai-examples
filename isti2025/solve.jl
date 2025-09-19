@@ -194,6 +194,7 @@ function factorize_and_solve_model(
         println("residual = $residual")
 
         res = (;
+            nnz = SparseArrays.nnz(matrix),
             t_init,
             t_factorize,
             t_solve,
