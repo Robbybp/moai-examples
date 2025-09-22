@@ -16,6 +16,7 @@ function _get_ma57_data(ma57)
         factor_size = ma57.info[14],
         # These are flops in assembly and elimination processes.
         flops = ma57.rinfo[3] + ma57.rinfo[4],
+        n2by2 = ma57.info[22],
     )
 end
 
@@ -23,6 +24,7 @@ function _get_ma86_data(ma86)
     return (;
         factor_size = ma86.info.num_factor,
         flops = ma86.info.num_flops,
+        n2by2 = ma86.info.num_two,
     )
 end
 
@@ -194,6 +196,7 @@ function factorize_and_solve_model(
         println("residual = $residual")
 
         res = (;
+            dim = matrix.m,
             nnz = SparseArrays.nnz(matrix),
             t_init,
             t_factorize,
