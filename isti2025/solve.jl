@@ -17,6 +17,7 @@ function _get_ma57_data(ma57)
         # These are flops in assembly and elimination processes.
         flops = ma57.rinfo[3] + ma57.rinfo[4],
         n2by2 = ma57.info[22],
+        status_code = ma57.info[1],
     )
 end
 
@@ -25,6 +26,7 @@ function _get_ma86_data(ma86)
         factor_size = ma86.info.num_factor,
         flops = ma86.info.num_flops,
         n2by2 = ma86.info.num_two,
+        status_code = ma86.info.flag,
     )
 end
 
@@ -101,6 +103,7 @@ function factorize_and_solve_model(
     silent = false,
     return_solver_data = false,
     matrix_type = "original",
+    return_runtime_breakdown = false,
 )
     _t = time()
     pivot_vars, pivot_cons = get_vars_cons(formulation)
@@ -144,7 +147,6 @@ function factorize_and_solve_model(
     kkt_matrix = MadNLP.get_kkt(kkt_system)
     dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Initialize MadNLP")
 
-    # For some reason, using kkt_system.linear_solver yields an error when I factorize...
     _t = time()
 
     # Convert KKT into the matrix we actually want to study here
@@ -155,6 +157,9 @@ function factorize_and_solve_model(
     end
     linear_solver = Solver(matrix; opt = opt_linear_solver)
     t_init = time() - _t; println("[$(@sprintf("%1.2f", t_init))] Initialize linear solver")
+    if return_runtime_breakdown && Solver !== SchurComplementSolver
+        error("Can't return a runtime breakdown unless we're using SchurComplementSolver")
+    end
 
     if !silent
         println(MadNLP.introduce(linear_solver))
@@ -178,11 +183,32 @@ function factorize_and_solve_model(
         # Update matrix in the linear solver. If this is the original KKT matrix, this is a no-op
         linear_solver.csc.nzval .= matrix.nzval
 
+        if return_runtime_breakdown
+            tfact_init = (;
+                reduced = linear_solver.timer.factorize.reduced,
+                pivot = linear_solver.timer.factorize.pivot,
+                solve = linear_solver.timer.factorize.solve,
+                multiply = linear_solver.timer.factorize.multiply,
+            )
+            tsolve_init = (;
+                schur = linear_solver.timer.solve_timer.solve_schur,
+                pivot = linear_solver.timer.solve_timer.solve_pivot,
+                rhs = linear_solver.timer.solve_timer.compute_rhs,
+            )
+        end
+
         _t = time()
         MadNLP.factorize!(linear_solver)
         inertia = MadNLP.inertia(linear_solver)
         npos, nzero, nneg = inertia
         t_factorize = time() - _t
+
+        # I want to collect the solver return code for factorization, not backsolve.
+        if return_solver_data
+            solver_data = SOLVER_DATA_GETTER[Solver](linear_solver)
+        else
+            solver_data = (;)
+        end
 
         sol = copy(rhs)
         _t = time()
@@ -206,10 +232,31 @@ function factorize_and_solve_model(
             refine_success = refine_res.success,
             refine_iter = refine_res.iterations,
         )
-
-        if return_solver_data
-            solver_data = SOLVER_DATA_GETTER[Solver](linear_solver)
-            res = merge(res, solver_data)
+        res = merge(res, solver_data)
+        if return_runtime_breakdown
+            # These are the time taken in each category for the most recent solve
+            factorize_buckets = [
+                linear_solver.timer.factorize.reduced - tfact_init.reduced,
+                linear_solver.timer.factorize.pivot - tfact_init.pivot,
+                linear_solver.timer.factorize.solve + linear_solver.timer.factorize.multiply - tfact_init.solve - tfact_init.multiply,
+            ]
+            backsolve_buckets = [
+                linear_solver.timer.solve_timer.solve_schur - tsolve_init.schur,
+                linear_solver.timer.solve_timer.solve_pivot - tsolve_init.pivot,
+                #linear_solver.timer.solve_timer.compute_rhs - tsolve_init.rhs,
+            ]
+            breakdown = (;
+                factorize_schur = factorize_buckets[1],
+                factorize_pivot = factorize_buckets[2],
+                construct_schur = factorize_buckets[3],
+                other_factorize = t_factorize - sum(factorize_buckets),
+                compute_resid = refine_res.t_resid,
+                solve_schur = backsolve_buckets[1],
+                solve_pivot = backsolve_buckets[2],
+                #compute_rhs = backsolve_buckets[3],
+                other_backsolve = t_solve - refine_res.t_resid - sum(backsolve_buckets),
+            )
+            res = merge(res, breakdown)
         end
         if !silent
             println("SAMPLE $i RESULTS:")

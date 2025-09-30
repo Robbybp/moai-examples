@@ -61,11 +61,20 @@ mutable struct SchurComplementFactorizeTimer
     SchurComplementFactorizeTimer() = new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 end
 
+mutable struct SchurComplementBacksolveTimer
+    total::Float64
+    solve_schur::Float64
+    solve_pivot::Float64
+    compute_rhs::Float64
+    SchurComplementBacksolveTimer() = new(0.0, 0.0, 0.0, 0.0)
+end
+
 mutable struct SchurComplementTimer
     initialize::Float64
     factorize::SchurComplementFactorizeTimer
-    solve::Float64
-    SchurComplementTimer() = new(0.0, SchurComplementFactorizeTimer(), 0.0)
+    solve::Float64 # TODO: Replace this with SchurComplementBacksolveTimer everywhere
+    solve_timer::SchurComplementBacksolveTimer
+    SchurComplementTimer() = new(0.0, SchurComplementFactorizeTimer(), 0.0, SchurComplementBacksolveTimer())
 end
 
 function Base.show(io::IO, timer::SchurComplementTimer)
@@ -554,16 +563,39 @@ function MadNLP.solve!(solver::SchurComplementSolver{T,INT}, rhs::Vector{T}) whe
     A = solver.csc[R, R]
     B = solver.csc[P, R] + solver.csc[R, P]'
 
-    temp = copy(orig_rhs_pivot)
-    MadNLP.solve!(solver.pivot_solver, temp)
-    rhs_reduced = orig_rhs_reduced - B' * temp
+    t_solve_pivot = 0.0
+    t_compute_rhs = 0.0
+    t_solve_schur = 0.0
 
+    temp = copy(orig_rhs_pivot)
+    _t = time()
+    MadNLP.solve!(solver.pivot_solver, temp)
+    t_solve_pivot += time() - _t
+
+    _t = time()
+    rhs_reduced = orig_rhs_reduced - B' * temp
+    t_compute_rhs += time() - _t
+
+    _t = time()
     MadNLP.solve!(solver.reduced_solver, rhs_reduced)
+    t_solve_schur += time() - _t
+
+    _t = time()
     rhs_pivot = orig_rhs_pivot - B * rhs_reduced
+    t_compute_rhs += time() - _t
+
+    _t = time()
     MadNLP.solve!(solver.pivot_solver, rhs_pivot)
+    t_solve_pivot += time() - _t
+
     rhs[R] .= rhs_reduced
     rhs[P] .= rhs_pivot
-    solver.timer.solve += time() - t_start
+    t_total = time() - t_start
+    solver.timer.solve += t_total
+    solver.timer.solve_timer.total += t_total
+    solver.timer.solve_timer.solve_schur += t_solve_schur
+    solver.timer.solve_timer.solve_pivot += t_solve_pivot
+    solver.timer.solve_timer.compute_rhs += t_compute_rhs
     #println("Time spend in backsolve: $(time() - t_start)")
     return rhs
 end
@@ -626,23 +658,28 @@ function refine!(
     println("Starting iterative refinement")
     _t = time()
     matrix = fill_upper_triangle(solver.csc)
-    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Get full symmetric matrix")
     residual = rhs - matrix * sol
     resid_norm = LinearAlgebra.norm(residual, Inf)
-    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Compute residual")
+    t_resid = time() - _t
+    println("[$(@sprintf("%1.2f", t_resid))] Compute residual")
+    t_backsolve = 0.0
 
     iter_count = 0
     if resid_norm <= tol
-        return (; success = true, iterations = iter_count, residual_norm = resid_norm)
+        return (; success = true, iterations = iter_count, residual_norm = resid_norm, t_resid, t_backsolve)
     end
     for i in 1:max_iter
         correction = copy(residual)
+        _t = time()
         MadNLP.solve!(solver, correction)
         dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Backsolve")
+        t_backsolve += dt
         sol .+= correction
         residual = rhs - matrix * sol
+        _t = time()
         resid_norm = LinearAlgebra.norm(residual, Inf)
         dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Update solution and compute residual")
+        t_resid += dt
         iter_count = i
         if resid_norm <= tol
             break
@@ -652,5 +689,7 @@ function refine!(
         success = resid_norm <= tol,
         iterations = iter_count,
         residual_norm = resid_norm,
+        t_resid,
+        t_backsolve,
     )
 end
