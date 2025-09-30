@@ -51,21 +51,24 @@ end
 # I don't intend to sample multiple primal values in this script
 #nsamples = 10
 
-for model_name in model_names
-    # Precompile on a small instance
-    println("PRECOMPILING WITH MODEL: $model_name")
-    precompile_nnfname = MODEL_TO_PRECOMPILE_NN[model_name]
-    precompile_nnfpath = joinpath(get_nn_dir(), precompile_nnfname)
-    precompile_model, precompile_formulation = MODEL_GETTER[model_name](precompile_nnfpath)
-    for SolverType in linear_solvers
-        factorize_and_solve_model(precompile_model, precompile_formulation, SolverType; silent = true)
-    end
-    println("DONE PRECOMPILING WITH MODEL: $model_name")
-end
+# I don't care about runtimes here, so I don't have to precompile
+#for model_name in model_names
+#    # Precompile on a small instance
+#    println("PRECOMPILING WITH MODEL: $model_name")
+#    precompile_nnfname = MODEL_TO_PRECOMPILE_NN[model_name]
+#    precompile_nnfpath = joinpath(get_nn_dir(), precompile_nnfname)
+#    precompile_model, precompile_formulation = MODEL_GETTER[model_name](precompile_nnfpath)
+#    for SolverType in linear_solvers
+#        factorize_and_solve_model(precompile_model, precompile_formulation, SolverType; silent = true)
+#    end
+#    println("DONE PRECOMPILING WITH MODEL: $model_name")
+#end
 
 data = []
 for model_name in model_names
-    for nnfname in MODEL_TO_NNS[model_name]
+    # NOTE: We only consider the last (largest) NN in this sweep
+    nns = [last(MODEL_TO_NNS[model_name])]
+    for nnfname in nns
         nnfpath = joinpath(get_nn_dir(), nnfname)
         # Here, sample index refers to the sample of the model itself, not the primal
         # variable values within the model.
@@ -110,7 +113,7 @@ end
 df = DataFrames.DataFrame(data)
 println(df)
 tabledir = get_table_dir()
-fname = "linear-solvers.csv"
+fname = "fill-in.csv"
 fpath = joinpath(tabledir, fname)
 println("Writing results to $fpath")
 CSV.write(fpath, df)
