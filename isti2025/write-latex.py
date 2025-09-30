@@ -36,6 +36,13 @@ COL_HEADER_MAP = {
     "sample": "Sample",
     "residual": "Residual",
     "refine_iter": "Refinement iter.",
+
+    "matrix_type": "Matrix",
+    "dim": "Matrix dim.",
+    "nnz": " NNZ",
+    "factor_size": "Factor NNZ",
+    "flops": "FLOPS",
+    "n2by2": "N. 2$\\times$2 pivots",
 }
 def _col_to_header(col):
     if col in COL_HEADER_MAP:
@@ -53,7 +60,9 @@ def _fname_to_model(fname):
 
 def _format_int(n):
     n = round(n)
-    if n >= 10**6:
+    if n >= 10**9:
+        return str(n // 10**9)+"B"
+    elif n >= 10**6:
         return str(n // 10**6)+"M"
     elif n >= 10**3:
         return str(n // 10**3)+"k"
@@ -73,10 +82,20 @@ def _parse_activations(act_str):
 def _parse_solver(name):
     if "Ma57" in name:
         return "MA57"
-    if name == "SchurComplementSolver":
+    elif "Ma86" in name:
+        return "MA86"
+    elif "Ma97" in name:
+        return "MA97"
+    elif "Ma27" in name:
+        return "MA27"
+    elif name == "SchurComplementSolver":
         return "Ours"
+    else:
+        raise ValueError("Unknown solver")
 
 
+# TODO: Ideally, this would compute the number of parameters from the NN file
+# (or look it up in some other file) rather than hard-coding it here.
 def _get_nparam(fname):
     if "mnist" in fname:
         if "128nodes" in fname:
@@ -115,6 +134,17 @@ def _parse_formulation(form):
     if form == "vector_nonlinear_oracle":
         return "Reduced-space"
     raise ValueError("Unrecognized formulation")
+
+
+def _parse_matrix_type(matrix):
+    if matrix == "original":
+        return "KKT"
+    elif matrix == "pivot":
+        return "Pivot"
+    elif matrix == "schur":
+        return "Schur"
+    else:
+        raise ValueError("unknown matrix type")
 
 
 def _format_time(n):
@@ -172,6 +202,13 @@ COL_FORMATTER = {
     "residual": lambda n: _format_float(n).rjust(8),
     "refine_iter": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["refine_iter"])),
     "nn-param": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["nn-param"])),
+
+    "matrix_type": lambda n: _parse_matrix_type(n).rjust(len(COL_HEADER_MAP["matrix_type"])),
+    "dim": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["dim"])),
+    "nnz": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["nnz"])),
+    "factor_size": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["factor_size"])),
+    "flops": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["flops"])),
+    "n2by2": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["n2by2"])),
 }
 def _format_item(col, item):
     return COL_FORMATTER.get(col, str)(item)
@@ -255,6 +292,11 @@ def _runtime_summary_df_to_latex(df):
     return df_to_latex(df, columns=columns)
 
 
+def _fillin_to_latex(df):
+    columns = ["model", "solver", "nn", "matrix_type", "dim", "nnz", "factor_size", "flops", "n2by2"]
+    return df_to_latex(df, columns=columns)
+
+
 def main(args):
     if not args.input_fpath.endswith(".csv") and not args.input_fpath.endswith(".CSV"):
         raise ValueError("Input fpath must end with '.csv' or '.CSV'")
@@ -269,14 +311,31 @@ def main(args):
                 f.write(table)
         print(table)
     df = pd.read_csv(args.input_fpath)
-    if "nns" in args.input_fpath and "structure" not in args.input_fpath and "runtime" not in args.input_fpath:
+    keys = ["nns", "structure", "runtime-summary", "runtime", "fill-in"]
+    def _name_contains(key, fpath):
+        return (
+            key in fpath
+            and all((k not in fpath) for k in keys if k != key and k != "runtime")
+        )
+    if _name_contains("nns", args.input_fpath):
         table_str = _nns_df_to_latex(df)
-    elif "structure" in args.input_fpath and "nns" not in args.input_fpath and "runtime" not in args.input_fpath:
+    elif _name_contains("structure", args.input_fpath):
         table_str = _structure_df_to_latex(df)
-    elif "runtime-summary" in args.input_fpath and "structure" not in args.input_fpath and "nns" not in args.input_fpath:
+    elif _name_contains("runtime-summary", args.input_fpath):
         table_str = _runtime_summary_df_to_latex(df)
-    elif "runtime" in args.input_fpath and "structure" not in args.input_fpath and "nns" not in args.input_fpath:
+    elif _name_contains("runtime", args.input_fpath):
         table_str = _runtime_df_to_latex(df)
+    elif _name_contains("fill-in", args.input_fpath):
+        table_str = _fillin_to_latex(df)
+    #if "nns" in args.input_fpath and "structure" not in args.input_fpath and "runtime" not in args.input_fpath:
+    #    table_str = _nns_df_to_latex(df)
+    #elif "structure" in args.input_fpath and "nns" not in args.input_fpath and "runtime" not in args.input_fpath:
+    #    table_str = _structure_df_to_latex(df)
+    #elif "runtime-summary" in args.input_fpath and "structure" not in args.input_fpath and "nns" not in args.input_fpath:
+    #    table_str = _runtime_summary_df_to_latex(df)
+    #elif "runtime" in args.input_fpath and "structure" not in args.input_fpath and "nns" not in args.input_fpath:
+    #    table_str = _runtime_df_to_latex(df)
+    #elif "fill-in" in args.input_fpath and "":
     else:
         raise ValueError("Cannot infer type of table from filename")
     _write_table(args, table_str)
