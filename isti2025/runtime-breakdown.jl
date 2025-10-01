@@ -41,7 +41,8 @@ end
 data = []
 for model_name in model_names
     # For now, just test the largest NNs
-    nns = [last(MODEL_TO_NNS[model_name])]
+    #nns = [last(MODEL_TO_NNS[model_name])]
+    nns = MODEL_TO_NNS[model_name]
     for nnfname in nns
         nnfpath = joinpath(get_nn_dir(), nnfname)
         model, formulation = MODEL_GETTER[model_name](nnfpath; sample_index = 1)
