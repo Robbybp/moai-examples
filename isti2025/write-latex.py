@@ -43,6 +43,13 @@ COL_HEADER_MAP = {
     "factor_size": "Factor NNZ",
     "flops": "FLOPS",
     "n2by2": "N. 2$\\times$2 pivots",
+
+    "%-construct-schur": "Build Schur",
+    "%-factorize-schur": "Factorize Schur",
+    "%-factorize-pivot": "Factorize pivot",
+    "%-resid": "Compute residual",
+    "%-solve-schur": "Solve Schur",
+    "%-solve-pivot": "Solve pivot",
 }
 def _col_to_header(col):
     if col in COL_HEADER_MAP:
@@ -220,6 +227,13 @@ CALCULATE_FROM_ROW = {
     "percent-jacobian": lambda row: _format_time(row["t_eval_jacobian"] / row["t_solve_total"]*100).rjust(8),
     "percent-hessian": lambda row: _format_time(row["t_eval_hessian"] / row["t_solve_total"]*100).rjust(7),
     "percent-solver": lambda row: _format_time((row["t_solve_total"] - row["t_eval_function"] - row["t_eval_jacobian"] - row["t_eval_hessian"]) / row["t_solve_total"]*100).rjust(6),
+    # TODO: format these percents
+    "%-construct-schur": lambda row: _format_int(row["construct_schur"] / row["t_factorize"] * 100).rjust(len(COL_HEADER_MAP["%-construct-schur"])),
+    "%-factorize-schur": lambda row: _format_int(row["factorize_schur"] / row["t_factorize"] * 100).rjust(len(COL_HEADER_MAP["%-factorize-schur"])),
+    "%-factorize-pivot": lambda row: _format_int(row["factorize_pivot"] / row["t_factorize"] * 100).rjust(len(COL_HEADER_MAP["%-factorize-pivot"])),
+    "%-resid": lambda row: _format_int(row["compute_resid"] / row["t_solve"] * 100).rjust(len(COL_HEADER_MAP["%-resid"])),
+    "%-solve-schur": lambda row: _format_int(row["solve_schur"] / row["t_solve"] * 100).rjust(len(COL_HEADER_MAP["%-solve-schur"])),
+    "%-solve-pivot": lambda row: _format_int(row["solve_pivot"] / row["t_solve"] * 100).rjust(len(COL_HEADER_MAP["%-solve-pivot"])),
 }
 
 
@@ -297,6 +311,22 @@ def _fillin_to_latex(df):
     return df_to_latex(df, columns=columns)
 
 
+def _breakdown_to_latex(df):
+    columns = [
+        "model",
+        "nn-param",
+        "t_factorize",
+        "%-construct-schur",
+        "%-factorize-schur",
+        "%-factorize-pivot",
+        "t_solve",
+        "%-resid",
+        "%-solve-schur",
+        "%-solve-pivot",
+    ]
+    return df_to_latex(df, columns=columns)
+
+
 def main(args):
     if not args.input_fpath.endswith(".csv") and not args.input_fpath.endswith(".CSV"):
         raise ValueError("Input fpath must end with '.csv' or '.CSV'")
@@ -311,7 +341,7 @@ def main(args):
                 f.write(table)
         print(table)
     df = pd.read_csv(args.input_fpath)
-    keys = ["nns", "structure", "runtime-summary", "runtime", "fill-in"]
+    keys = ["nns", "structure", "runtime-summary", "runtime", "fill-in", "breakdown-summary"]
     def _name_contains(key, fpath):
         return (
             key in fpath
@@ -327,6 +357,8 @@ def main(args):
         table_str = _runtime_df_to_latex(df)
     elif _name_contains("fill-in", args.input_fpath):
         table_str = _fillin_to_latex(df)
+    elif _name_contains("breakdown-summary", args.input_fpath):
+        table_str = _breakdown_to_latex(df)
     #if "nns" in args.input_fpath and "structure" not in args.input_fpath and "runtime" not in args.input_fpath:
     #    table_str = _nns_df_to_latex(df)
     #elif "structure" in args.input_fpath and "nns" not in args.input_fpath and "runtime" not in args.input_fpath:

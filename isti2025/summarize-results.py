@@ -34,16 +34,32 @@ def _get_nparam(fname):
 
 def process_data(df):
     df["nn"] = [_get_nparam(nn) for nn in df["nn"]]
+    colset = set(df.columns)
     df = df.groupby(["model", "solver", "nn"])
-    combined_df = df.agg({
+
+    combine_methods = {
         't_init': 'first',
         't_factorize': 'sum',
         't_solve': 'sum',
         'nneg_eig': 'mean',
         'residual': 'mean',
         'refine_success': 'count',
-        'refine_iter': 'mean'
-    }).reset_index()
+        'refine_iter': 'mean',
+        # Solvetime breakdowns
+        'factorize_schur': 'sum',
+        'factorize_pivot': 'sum',
+        'construct_schur': 'sum',
+        'other_factorize': 'sum',
+        'compute_resid': 'sum',
+        'solve_schur': 'sum',
+        'solve_pivot': 'sum',
+        'other_backsolve': 'sum',
+    }
+    combine_methods = {
+        col: combine_methods[col]
+        for col in combine_methods if col in colset
+    }
+    combined_df = df.agg(combine_methods).reset_index()
     combined_df = combined_df.rename(columns={"nn": "nn-param"})
     return combined_df
 
