@@ -166,6 +166,10 @@ function factorize_and_solve_model(
         display(linear_solver.csc)
     end
 
+    # We will use these to more efficiently compute residuals later.
+    # We do this here to amortize the cost across many iterations.
+    full_matrix, tril_to_full_view = MadNLP.get_tril_to_full(linear_solver.csc)
+
     results = []
     for i in 1:nsamples
         println("SAMPLE = $i")
@@ -214,7 +218,15 @@ function factorize_and_solve_model(
         _t = time()
         MadNLP.solve!(linear_solver, sol)
         # TODO: Allow specification of these iterative refinement parameters
-        refine_res = refine!(sol, linear_solver, rhs, max_iter = 20, tol = 1e-5)
+        refine_res = refine!(
+            sol,
+            linear_solver,
+            rhs,
+            max_iter = 20,
+            tol = 1e-5;
+            full_matrix,
+            tril_to_full_view,
+        )
         t_solve = time() - _t
 
         full_matrix = fill_upper_triangle(matrix)
@@ -243,7 +255,7 @@ function factorize_and_solve_model(
             backsolve_buckets = [
                 linear_solver.timer.solve_timer.solve_schur - tsolve_init.schur,
                 linear_solver.timer.solve_timer.solve_pivot - tsolve_init.pivot,
-                #linear_solver.timer.solve_timer.compute_rhs - tsolve_init.rhs,
+                linear_solver.timer.solve_timer.compute_rhs - tsolve_init.rhs,
             ]
             breakdown = (;
                 factorize_schur = factorize_buckets[1],
@@ -253,7 +265,7 @@ function factorize_and_solve_model(
                 compute_resid = refine_res.t_resid,
                 solve_schur = backsolve_buckets[1],
                 solve_pivot = backsolve_buckets[2],
-                #compute_rhs = backsolve_buckets[3],
+                compute_rhs = backsolve_buckets[3],
                 other_backsolve = t_solve - refine_res.t_resid - sum(backsolve_buckets),
             )
             res = merge(res, breakdown)

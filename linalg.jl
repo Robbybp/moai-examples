@@ -654,10 +654,20 @@ function refine!(
     rhs::Vector{Float64};
     tol::Float64 = 1e-8,
     max_iter::Int = 10,
+    full_matrix::Union{Nothing,SparseArrays.SparseMatrixCSC} = nothing,
+    tril_to_full_view::Union{Nothing,SubArray} = nothing,
 )
     println("Starting iterative refinement")
     _t = time()
-    matrix = fill_upper_triangle(solver.csc)
+    if full_matrix === nothing
+        matrix = fill_upper_triangle(solver.csc)
+    else
+        @assert tril_to_full_view !== nothing
+        # This could be done outside of this function, saving us an argument, but
+        # I would like it to be include in the residual computation time
+        full_matrix.nzval .= tril_to_full_view
+        matrix = full_matrix
+    end
     residual = rhs - matrix * sol
     resid_norm = LinearAlgebra.norm(residual, Inf)
     t_resid = time() - _t
