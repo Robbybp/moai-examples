@@ -50,7 +50,9 @@ mutable struct BlockTriangularSolver <: MadNLP.AbstractLinearSolver{Float64}
     # corresponding to this node's out-edges
     edgestart_by_block::Vector{Int}
     edgeend_by_block::Vector{Int}
-    off_diagonal_matrices::Vector{SparseArrays.SparseMatrixCSC{Float64,Int32}}
+    off_diagonal_matrices::Vector{SparseArrays.SparseMatrixCSC{Float64,Int}}
+    off_diagonal_dense_indices::Vector{Int}
+    off_diagonal_dense_matrices::Vector{Matrix{Float64}}
 end
 
 MadNLP.input_type(::Type{BlockTriangularSolver}) = :csc
@@ -128,7 +130,7 @@ function BlockTriangularSolver(
     # These are the diagonal blocks in the block *triangularization*.
     # Note that these are stored as dense matrices. (Sparse matrices become
     # prohibitively expensive when there are many small diagonal blocks.
-    # The are potentially more efficient for user-provided blocks, but this
+    # They are potentially more efficient for user-provided blocks, but this
     # is mostly moot because I'm using a block-diagonal decomposition anyway.
     # Dense matrices also made the implementation of BlockDiagonalView simpler.)
     diagonal_block_matrices = map(b -> zeros(b, b), blocksizes)
@@ -153,7 +155,7 @@ function BlockTriangularSolver(
     # This will store LU or BlockDiagonalLU factors
     #factors = Vector{Union{LinearAlgebra.LU{Float64,Matrix{Float64},Vector{Int}},BlockDiagonalLU}}()
     #
-    # This doesn't allocate the LU struct as we can't re-use it anway.
+    # This doesn't allocate the LU struct as we can't re-use it anyway.
 
     nnz = SparseArrays.nnz(full_matrix)
     I, J, _ = SparseArrays.findnz(full_matrix)
@@ -245,6 +247,9 @@ function BlockTriangularSolver(
         edgeend_by_block[b] = edgeend
     end
 
+    off_diagonal_dense_indices = findall(map(csc -> SparseArrays.nnz(csc) >= 0.01*csc.m*csc.n, off_diagonal_matrices))
+    off_diagonal_dense_matrices = Matrix.(off_diagonal_matrices[off_diagonal_dense_indices])
+
     return BlockTriangularSolver(
         original_matrix,
         full_matrix,
@@ -262,6 +267,8 @@ function BlockTriangularSolver(
         edgestart_by_block,
         edgeend_by_block,
         off_diagonal_matrices,
+        off_diagonal_dense_indices,
+        off_diagonal_dense_matrices,
     )
 end
 
@@ -289,6 +296,7 @@ function MadNLP.factorize!(solver::BlockTriangularSolver)
     end
     dt = time() - t0
     #println("[$dt] Allocate matrices")
+    # NOTE: I and J can be cached during initialization...
     I, J, V = SparseArrays.findnz(csc)
     dt = time() - t0
     #println("[$dt] findnz")
@@ -309,6 +317,26 @@ function MadNLP.factorize!(solver::BlockTriangularSolver)
         matrix = block_matrices[row_block_map[I[k]][1]]
         matrix[row_block_map[I[k]][2], col_block_map[J[k]][2]] += V[k]
     end
+
+    # Update off-diagonal matrices
+    off_diagonal_nz = solver.off_diagonal_nz
+    off_diagonal_nzperm = solver.off_diagonal_nzperm
+    edge_slices = solver.edge_slices
+    nedges = solver.nedges
+    sorted_V = V[off_diagonal_nz][off_diagonal_nzperm]
+    V_by_edge = map(s -> sorted_V[s], edge_slices)
+    off_diagonal_matrices = solver.off_diagonal_matrices
+    for e in 1:nedges
+        # There must be a way to do this with less overhead.
+        # I would like each matrix's nzval to be an unsafe wrap around
+        # part of some global array. Not sure if this is possible.
+        # This also gets much more efficient when I use fewer blocks.
+        off_diagonal_matrices[e].nzval .= V_by_edge[e]
+    end
+    # Update off-diagonal matrices
+    solver.off_diagonal_dense_matrices .= Matrix.(off_diagonal_matrices[solver.off_diagonal_dense_indices])
+    dt = time() - t0
+    println("[$dt] Update nzval")
 
     dt = time() - t0
     #println("[$dt] Loop over nonzeros")
@@ -351,38 +379,15 @@ function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Matrix)
     dag = solver.dag
     edgestart_by_block = solver.edgestart_by_block
     edgeend_by_block = solver.edgeend_by_block
-    off_diagonal_matrices = solver.off_diagonal_matrices
-
-    I, J, V = SparseArrays.findnz(csc)
-    sorted_V = V[off_diagonal_nz][off_diagonal_nzperm]
-    V_by_edge = map(s -> sorted_V[s], edge_slices)
-
-    for e in 1:nedges
-        # There must be a way to do this with less overhead.
-        # I would like each matrix's nzval to be an unsafe wrap around
-        # part of some global array. Not sure if this is possible.
-        # This also gets much more efficient when I use fewer blocks.
-        off_diagonal_matrices[e].nzval .= V_by_edge[e]
-    end
-    dt = time() - _t
-    #println("[$dt] Update nzval")
-
-    # TODO: Allocate these dense matrices during initialization
-    #off_diagonal_matrices = map(m -> Matrix(m), off_diagonal_matrices)
-    off_diagonal_matrices = map(
-        # Some quick heuristic to switch between sparse and dense
-        matrix -> SparseArrays.nnz(matrix) >= 0.01*matrix.m*matrix.n ? Matrix(matrix) : matrix,
-        off_diagonal_matrices,
-    )
-    dt = time() - _t
-    #println("[$dt] Construct dense matrices")
+    off_diagonal_matrices = Vector{Union{Matrix{Float64},SparseArrays.SparseMatrixCSC{Float64,Int}}}(solver.off_diagonal_matrices)
+    off_diagonal_matrices[solver.off_diagonal_dense_indices] .= solver.off_diagonal_dense_matrices
 
     # Backsolve using an adjacency list
     t_solve = 0.0
     t_loop = 0.0
     t_multiply_and_subtract = 0.0
     _t = time()
-    #println()
+    println()
     #println("Entering backsolve loop for $nblock blocks and $nedges edges")
     for b in 1:nblock
         local _t = time()
@@ -411,13 +416,13 @@ function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Matrix)
     #println("Total:                 $t_loop")
     #println("---------------")
     dt = time() - _t
-    #println("[$dt] Backsolve")
+    println("[$dt] Backsolve")
     for (i, rhs_i) in enumerate(rhs_blocks)
         # We apply the inverse column permutation to our solution.
         rhs[blocks[i][2], :] .= rhs_i
     end
     dt = time() - _t
-    #println("[$dt] Update rhs")
+    println("[$dt] Update rhs")
     # By updating B in-place, we have implicitly applied the inverse
     # row permutation to our solution. We must undo this row permutation
     # *and* apply the column permutation to our solution in order to
