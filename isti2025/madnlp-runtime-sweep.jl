@@ -19,10 +19,26 @@ model_names = [
     "scopf",
 ]
 
-linear_solvers = [
-    SchurComplementSolver,
-    MadNLPHSL.Ma57Solver,
-]
+linear_solvers = Dict(
+    "mnist" => [
+        SchurComplementSolver,
+        MadNLPHSL.Ma57Solver,
+    ],
+    "scopf" => [
+        SchurComplementSolver,
+        MadNLPHSL.Ma86Solver,
+    ],
+)
+
+OPT_LOOKUP = Dict(
+    # Metis or exact minimum degree croak on these matrices.
+    MadNLPHSL.Ma57Solver => MadNLPHSL.Ma57Options(; ma57_pivot_order = 2), # In MA57, 2=AMD
+    MadNLPHSL.Ma86Solver => MadNLPHSL.Ma86Options(; ma86_order = MadNLPHSL.AMD, ma86_num_threads = 1),
+    MadNLPHSL.Ma97Solver => MadNLPHSL.Ma97Options(; ma97_order = MadNLPHSL.AMD, ma97_num_threads = 1),
+)
+function _get_opt(SolverType)
+    return get(OPT_LOOKUP, SolverType, nothing)
+end
 
 nsamples = 10
 
@@ -32,8 +48,14 @@ for model_name in model_names
     precompile_nnfname = MODEL_TO_PRECOMPILE_NN[model_name]
     precompile_nnfpath = joinpath(get_nn_dir(), precompile_nnfname)
     precompile_model, precompile_formulation = MODEL_GETTER[model_name](precompile_nnfpath)
-    for SolverType in linear_solvers
-        factorize_and_solve_model(precompile_model, precompile_formulation, SolverType; silent = true)
+    for SolverType in linear_solvers[model_name]
+        factorize_and_solve_model(
+            precompile_model,
+            precompile_formulation,
+            SolverType;
+            opt = _get_opt(SolverType),
+            silent = true,
+        )
     end
     println("DONE PRECOMPILILING WITH MODEL: $model_name")
 end
@@ -43,11 +65,12 @@ for model_name in model_names
     for nnfname in MODEL_TO_NNS[model_name]
         nnfpath = joinpath(get_nn_dir(), nnfname)
         model, formulation = MODEL_GETTER[model_name](nnfpath; sample_index = 1)
-        for SolverType in linear_solvers
+        for SolverType in linear_solvers[model_name]
             println("Starting trial with following parameters:")
             println("Model:      $model_name")
             println("NN:         $nnfname")
             println("Solver:     $SolverType")
+            println("Options:    $(_get_opt(SolverType))")
             println("N. samples: $nsamples")
             inputs = (;
                 model = model_name,
@@ -58,6 +81,7 @@ for model_name in model_names
                 model,
                 formulation,
                 SolverType;
+                opt = _get_opt(SolverType),
                 nsamples,
             )
             println("Finished trial with following parameters:")
