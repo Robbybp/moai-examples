@@ -240,14 +240,15 @@ CALCULATE_FROM_ROW = {
 def _calculate_speedup(df, row):
     # Speedup of this row's factorization + backsolve compared to MA57
     # Note that parsing the entire DF here leads to O(n^2) time
-    if row["solver"] == "MadNLPHSL.Ma57Solver":
+    if row["solver"] in ("MadNLPHSL.Ma57Solver", "MadNLPHSL.Ma86Solver"):
         return None
     t_row = row["t_factorize"] + row["t_solve"]
+    solver_rows = (df["solver"] == "MadNLPHSL.Ma57Solver") | (df["solver"] == "MadNLPHSL.Ma86Solver")
     try:
-        baseline_row = df[df["model"] == row["model"]][df["nn"] == row["nn"]][df["sample"]==row["sample"]][df["solver"] == "MadNLPHSL.Ma57Solver"].iloc[0]
+        baseline_row = df[df["model"] == row["model"]][df["nn"] == row["nn"]][df["sample"]==row["sample"]][solver_rows].iloc[0]
     except KeyError:
         # ...
-        baseline_row = df[df["model"] == row["model"]][df["nn-param"] == row["nn-param"]][df["solver"] == "MadNLPHSL.Ma57Solver"].iloc[0]
+        baseline_row = df[df["model"] == row["model"]][df["nn-param"] == row["nn-param"]][solver_rows].iloc[0]
     t_baseline = baseline_row["t_factorize"] + baseline_row["t_solve"]
     speedup = t_baseline / t_row
     return speedup
