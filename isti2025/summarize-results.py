@@ -53,6 +53,7 @@ def process_data(df):
         'compute_resid': 'sum',
         'solve_schur': 'sum',
         'solve_pivot': 'sum',
+        'compute_rhs': 'sum',
         'other_backsolve': 'sum',
     }
     combine_methods = {
