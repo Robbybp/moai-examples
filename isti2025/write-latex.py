@@ -312,6 +312,11 @@ def _fillin_to_latex(df):
     return df_to_latex(df, columns=columns)
 
 
+def _solvers_to_latex(df):
+    columns = ["model", "solver", "nn", "t_init", "t_factorize", "t_solve", "residual", "refine_iter"]
+    return df_to_latex(df, columns=columns)
+
+
 def _breakdown_to_latex(df):
     columns = [
         "model",
@@ -342,7 +347,7 @@ def main(args):
                 f.write(table)
         print(table)
     df = pd.read_csv(args.input_fpath)
-    keys = ["nns", "structure", "runtime-summary", "runtime", "fill-in", "breakdown-summary"]
+    keys = ["nns", "structure", "runtime-summary", "runtime", "fill-in", "breakdown-summary", "linear-solvers"]
     def _name_contains(key, fpath):
         return (
             key in fpath
@@ -360,6 +365,8 @@ def main(args):
         table_str = _fillin_to_latex(df)
     elif _name_contains("breakdown-summary", args.input_fpath):
         table_str = _breakdown_to_latex(df)
+    elif _name_contains("linear-solvers", args.input_fpath):
+        table_str = _solvers_to_latex(df)
     #if "nns" in args.input_fpath and "structure" not in args.input_fpath and "runtime" not in args.input_fpath:
     #    table_str = _nns_df_to_latex(df)
     #elif "structure" in args.input_fpath and "nns" not in args.input_fpath and "runtime" not in args.input_fpath:

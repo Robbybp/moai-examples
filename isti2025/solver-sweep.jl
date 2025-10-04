@@ -28,7 +28,7 @@ linear_solvers = [
     #MadNLPHSL.Ma27Solver,
     MadNLPHSL.Ma57Solver,
     MadNLPHSL.Ma86Solver,
-    #MadNLPHSL.Ma97Solver,
+    MadNLPHSL.Ma97Solver,
 ]
 
 OPT_LOOKUP = Dict(
@@ -58,6 +58,11 @@ end
 
 n_nns = 3
 
+SKIP = [
+    (MadNLPHSL.Ma97Solver, "mnist-tanh2048nodes4layers.pt"),
+    (MadNLPHSL.Ma97Solver, joinpath("scopf", "1500nodes10layers.pt")),
+]
+
 data = []
 for model_name in model_names
     # We only test on the first two NNs, as the larger ones hit errors in the
@@ -71,6 +76,9 @@ for model_name in model_names
         # variable values within the model.
         model, formulation = MODEL_GETTER[model_name](nnfpath; sample_index = 1)
         for SolverType in linear_solvers
+            if (SolverType, nnfname) in SKIP
+                continue
+            end
             println("Starting trial with following parameters:")
             println("Model:      $model_name")
             println("NN:         $nnfname")
