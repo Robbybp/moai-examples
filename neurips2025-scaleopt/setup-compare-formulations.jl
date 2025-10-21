@@ -10,8 +10,10 @@ I'm using for this sweep.
 """
 # TODO: Should this be moved into localconfig.jl?
 
-# This is where MODEL_TO_NNS is defined
+# This defines MODEL_GETTER, which we need
 include("../model-getter.jl")
+# This is where MODEL_TO_NNS is defined
+include("nn-getter.jl")
 
 devices = Dict(
     :full_space => ["cpu"],
