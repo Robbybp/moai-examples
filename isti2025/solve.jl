@@ -88,10 +88,39 @@ function _get_pivot_matrix(madnlp::MadNLP.MadNLPSolver)
     return matrix, rhs_pivot
 end
 
+"""The diagonal block of the original matrix that we *don't* perform
+a Schur complement with respect to"""
+function _get_A(madnlp::MadNLP.MadNLPSolver)
+    solver = madnlp.kkt.linear_solver
+    dim = solver.csc.n
+    index_set = Set(solver.pivot_indices)
+    reduced_indices = filter(i -> !(i in index_set), 1:dim)
+    R = reduced_indices
+    A = solver.csc[R, R]
+    # There is no RHS that can be meaningfully associated with A
+    return A, nothing
+end
+
+"""The off-diagonal block of the original matrix"""
+function _get_B(madnlp::MadNLP.MadNLPSolver)
+    solver = madnlp.kkt.linear_solver
+    dim = solver.csc.n
+    index_set = Set(solver.pivot_indices)
+    reduced_indices = filter(i -> !(i in index_set), 1:dim)
+    P = solver.pivot_indices
+    R = reduced_indices
+    A = solver.csc[R, R]
+    B = solver.csc[P, R] + solver.csc[R, P]'
+    # There is no RHS that can be meaningfully associated with B
+    return B, nothing
+end
+
 MATRIX_GETTER = Dict(
     "original" => _get_original_kkt_matrix,
     "schur" => _get_schur_complement,
     "pivot" => _get_pivot_matrix,
+    "A" => _get_A,
+    "B" => _get_B,
 )
 
 function factorize_and_solve_model(
@@ -277,4 +306,47 @@ function factorize_and_solve_model(
         push!(results, res)
     end
     return results
+end
+
+function get_matrix_structure(
+    model::JuMP.Model,
+    formulation;
+    matrix_type = "original",
+)
+    _t = time()
+    pivot_vars, pivot_cons = get_vars_cons(formulation)
+    pivot_indices = get_kkt_indices(model, pivot_vars, pivot_cons)
+    pivot_indices = convert(Vector{Int32}, pivot_indices)
+    blocks = partition_indices_by_layer(model, formulation; indices = pivot_indices)
+    pivot_solver_opt = BlockTriangularOptions(; blocks)
+    # We have to use SchurComplementSolver so we can construct all the submatrices
+    madnlp_options = Dict{Symbol,Any}(
+        # TODO: Can I use MA86 to speed this up? I would need to pass ReducedSolver opts.
+        :ReducedSolver => MadNLPHSL.Ma57Solver,
+        :PivotSolver => BlockTriangularSolver,
+        :pivot_indices => pivot_indices,
+        :pivot_solver_opt => pivot_solver_opt,
+    )
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Parse formulation")
+
+    _t = time()
+    nlp = NLPModelsJuMP.MathOptNLPModel(model)
+    madnlp = MadNLP.MadNLPSolver(
+        nlp;
+        tol = 1e-6,
+        print_level = MadNLP.TRACE,
+        max_iter = 0,
+        linear_solver = SchurComplementSolver,
+        madnlp_options...,
+    )
+    MadNLP.initialize!(madnlp)
+    kkt_system = madnlp.kkt
+    kkt_matrix = MadNLP.get_kkt(kkt_system)
+    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Initialize MadNLP")
+
+    matrix, _ = MATRIX_GETTER[matrix_type](madnlp)
+    nrow = matrix.m
+    ncol = matrix.n
+    nnz = SparseArrays.nnz(matrix)
+    return (; nrow, ncol, nnz)
 end
