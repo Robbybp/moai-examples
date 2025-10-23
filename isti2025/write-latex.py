@@ -279,7 +279,7 @@ def df_to_latex(df, columns=None):
         lines.append(line)
     lines.append([r"\bottomrule"])
 
-    lines_str = [" & ".join(line) + " \\\\\n" for line in lines]
+    lines_str = [" & ".join(line) + " \\\\\n" if not line[-1].endswith("rule") else "".join(line)+"\n" for line in lines]
     table_str = "".join(lines_str)
     return table_str
 
@@ -290,8 +290,8 @@ def _nns_df_to_latex(df):
 
 
 def _structure_df_to_latex(df):
-    df = df.sort_values(by=["model", "formulation"])
-    columns = ["model", "formulation", "NN", "nvar", "ncon", "jnnz", "hnnz"]
+    df = df.sort_values(by=["model"])
+    columns = ["model", "n_parameters", "nvar", "ncon", "jnnz", "hnnz"]
     return df_to_latex(df, columns=columns)
 
 
@@ -313,7 +313,8 @@ def _fillin_to_latex(df):
 
 
 def _solvers_to_latex(df):
-    columns = ["model", "solver", "nn", "t_init", "t_factorize", "t_solve", "residual", "refine_iter"]
+    df = df.sort_values(by=["model", "solver"])
+    columns = ["model", "solver", "nn", "t_init", "t_factorize", "t_solve", "residual"]
     return df_to_latex(df, columns=columns)
 
 
