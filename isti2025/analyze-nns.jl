@@ -1,14 +1,13 @@
 # Just use whatever Python we find on the path, whether or not it is from conda
-ENV["JULIA_CONDAPKG_BACKEND"] = "Null"
+# ...
+# I believe this was inherited from `neurips2025scaleopt`, where "null backend"
+# was necessary to pre-installed conda on HPC. This shouldn't be necessary here.
+#ENV["JULIA_CONDAPKG_BACKEND"] = "Null"
 
-import MathOptAI
+import PythonCall
+import MathOptAI # Not sure why this import is necessary...
 import DataFrames
 import CSV
-
-include("../pytorch.jl")
-include("localconfig.jl")
-include("../model-getter.jl")
-include("nn-getter.jl")
 
 _isinstance(a, b) = Bool(PythonCall.pybuiltins.isinstance(a, b))
 
@@ -107,22 +106,29 @@ function analyze_nn(fpath::String)
     return info
 end
 
-model_names = ["mnist", "scopf"]
-nn_dir = joinpath(dirname(dirname(@__FILE__)), "nn-models")
-nn_data = []
-for model_name in model_names
-    for fname in MODEL_TO_NNS[model_name]
-        fpath = joinpath(nn_dir, fname)
-        res = analyze_nn(fpath)
-        inputs = (; model_name, fname)
-        res = merge(inputs, res)
-        push!(nn_data, res)
+if abspath(PROGRAM_FILE) == @__FILE__
+    include("../pytorch.jl")
+    include("localconfig.jl")
+    include("../model-getter.jl")
+    include("nn-getter.jl")
+
+    model_names = ["mnist", "scopf"]
+    nn_dir = joinpath(dirname(dirname(@__FILE__)), "nn-models")
+    nn_data = []
+    for model_name in model_names
+        for fname in MODEL_TO_NNS[model_name]
+            local fpath = joinpath(nn_dir, fname)
+            res = analyze_nn(fpath)
+            inputs = (; model_name, fname)
+            res = merge(inputs, res)
+            push!(nn_data, res)
+        end
     end
+    df = DataFrames.DataFrame(nn_data)
+    tabledir = get_table_dir()
+    fname = "nns.csv"
+    fpath = joinpath(tabledir, fname)
+    println("Writing results to $fpath")
+    CSV.write(fpath, df)
+    println(df)
 end
-df = DataFrames.DataFrame(nn_data)
-tabledir = get_table_dir()
-fname = "nns.csv"
-fpath = joinpath(tabledir, fname)
-println("Writing results to $fpath")
-CSV.write(fpath, df)
-println(df)
