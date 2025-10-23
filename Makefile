@@ -5,8 +5,9 @@ isti:
 	# Collect information about the structure of optimization problems
 	julia --project=. isti2025/structure-sweep.jl
 	python isti2025/write-latex.py isti2025/tables/structure.csv
-	# TODO: Collect structural information about matrices
-	#
+	# Collect structural information about matrices
+	julia --project=. isti2025/matrix-structure.jl
+	# TODO: Write matrix structure table to Latex
 	# Compare runtime on different solvers to decide which solver to use for the different methods
 	julia --project=. isti2025/solver-sweep.jl
 	python isti2025/write-latex.py isti2025/tables/linear-solvers.csv
