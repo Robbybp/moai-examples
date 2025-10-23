@@ -7,7 +7,7 @@ isti:
 	python isti2025/write-latex.py isti2025/tables/structure.csv
 	# Collect structural information about matrices
 	julia --project=. isti2025/matrix-structure.jl
-	# TODO: Write matrix structure table to Latex
+	python isti2025/write-latex.py isti2025/tables/matrix-structure.csv
 	# Compare runtime on different solvers to decide which solver to use for the different methods
 	julia --project=. isti2025/solver-sweep.jl
 	python isti2025/write-latex.py isti2025/tables/linear-solvers.csv
