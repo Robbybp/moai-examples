@@ -39,6 +39,8 @@ COL_HEADER_MAP = {
 
     "matrix_type": "Matrix",
     "dim": "Matrix dim.",
+    "nrow": "N. row",
+    "ncol": "N. col",
     "nnz": " NNZ",
     "factor_size": "Factor NNZ",
     "flops": "FLOPS",
@@ -144,14 +146,19 @@ def _parse_formulation(form):
 
 
 def _parse_matrix_type(matrix):
-    if matrix == "original":
-        return "KKT"
-    elif matrix == "pivot":
-        return "Pivot"
-    elif matrix == "schur":
-        return "Schur"
-    else:
-        raise ValueError("unknown matrix type")
+    match matrix:
+        case "original":
+            return "KKT"
+        case "pivot":
+            return "Pivot"
+        case "schur":
+            return "Schur"
+        case "A":
+            return "$A$"
+        case "B":
+            return "$B$"
+        case _:
+            raise ValueError("unknown matrix type")
 
 
 def _format_time(n):
@@ -212,6 +219,8 @@ COL_FORMATTER = {
 
     "matrix_type": lambda n: _parse_matrix_type(n).rjust(len(COL_HEADER_MAP["matrix_type"])),
     "dim": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["dim"])),
+    "nrow": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["nrow"])),
+    "ncol": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["ncol"])),
     "nnz": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["nnz"])),
     "factor_size": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["factor_size"])),
     "flops": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["flops"])),
@@ -318,6 +327,24 @@ def _solvers_to_latex(df):
     return df_to_latex(df, columns=columns)
 
 
+def _matrix_structure_to_latex(df):
+    def _sort_col(c):
+        match c.name:
+            case "model":
+                # Sort "model" by its raw values
+                return c
+            case "nn":
+                return c.map(_get_nparam)
+            case "matrix_type":
+                order = {"original": 0, "A": 1, "B": 2, "pivot": 3, "schur": 4}
+                return c.map(order)
+            case _:
+                raise ValueError()
+    df = df.sort_values(by=["model", "nn", "matrix_type"], key=_sort_col)
+    columns = ["model", "nn", "matrix_type", "nrow", "ncol", "nnz"]
+    return df_to_latex(df, columns=columns)
+
+
 def _breakdown_to_latex(df):
     columns = [
         "model",
@@ -348,11 +375,11 @@ def main(args):
                 f.write(table)
         print(table)
     df = pd.read_csv(args.input_fpath)
-    keys = ["nns", "structure", "runtime-summary", "runtime", "fill-in", "breakdown-summary", "linear-solvers"]
+    keys = ["nns", "structure", "runtime-summary", "runtime", "fill-in", "breakdown-summary", "linear-solvers", "matrix-structure"]
     def _name_contains(key, fpath):
         return (
             key in fpath
-            and all((k not in fpath) for k in keys if k != key and k != "runtime")
+            and all((k not in fpath) for k in keys if k != key and k not in key)
         )
     if _name_contains("nns", args.input_fpath):
         table_str = _nns_df_to_latex(df)
@@ -368,15 +395,8 @@ def main(args):
         table_str = _breakdown_to_latex(df)
     elif _name_contains("linear-solvers", args.input_fpath):
         table_str = _solvers_to_latex(df)
-    #if "nns" in args.input_fpath and "structure" not in args.input_fpath and "runtime" not in args.input_fpath:
-    #    table_str = _nns_df_to_latex(df)
-    #elif "structure" in args.input_fpath and "nns" not in args.input_fpath and "runtime" not in args.input_fpath:
-    #    table_str = _structure_df_to_latex(df)
-    #elif "runtime-summary" in args.input_fpath and "structure" not in args.input_fpath and "nns" not in args.input_fpath:
-    #    table_str = _runtime_summary_df_to_latex(df)
-    #elif "runtime" in args.input_fpath and "structure" not in args.input_fpath and "nns" not in args.input_fpath:
-    #    table_str = _runtime_df_to_latex(df)
-    #elif "fill-in" in args.input_fpath and "":
+    elif _name_contains("matrix-structure", args.input_fpath):
+        table_str = _matrix_structure_to_latex(df)
     else:
         raise ValueError("Cannot infer type of table from filename")
     _write_table(args, table_str)
