@@ -308,11 +308,7 @@ function factorize_and_solve_model(
     return results
 end
 
-function get_matrix_structure(
-    model::JuMP.Model,
-    formulation;
-    matrix_type = "original",
-)
+function get_matrices_structures(model::JuMP.Model, formulation)
     _t = time()
     pivot_vars, pivot_cons = get_vars_cons(formulation)
     pivot_indices = get_kkt_indices(model, pivot_vars, pivot_cons)
@@ -344,9 +340,15 @@ function get_matrix_structure(
     kkt_matrix = MadNLP.get_kkt(kkt_system)
     dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Initialize MadNLP")
 
-    matrix, _ = MATRIX_GETTER[matrix_type](madnlp)
-    nrow = matrix.m
-    ncol = matrix.n
-    nnz = SparseArrays.nnz(matrix)
-    return (; nrow, ncol, nnz)
+    # It might be better to accept a list of matrix types for more fine-grained control.
+    data = []
+    for (matrix_type, get_matrix) in MATRIX_GETTER
+        println("Getting structure for matrix $matrix_type")
+        matrix, _ = get_matrix(madnlp)
+        nrow = matrix.m
+        ncol = matrix.n
+        nnz = SparseArrays.nnz(matrix)
+        push!(data, (; matrix_type, nrow, ncol, nnz))
+    end
+    return data
 end
