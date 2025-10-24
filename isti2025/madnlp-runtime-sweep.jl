@@ -17,6 +17,7 @@ include("nn-getter.jl")
 model_names = [
     "mnist",
     "scopf",
+    "lsv",
 ]
 
 linear_solvers = Dict(
@@ -25,6 +26,10 @@ linear_solvers = Dict(
         MadNLPHSL.Ma57Solver,
     ],
     "scopf" => [
+        SchurComplementSolver,
+        MadNLPHSL.Ma86Solver,
+    ],
+    "lsv" => [
         SchurComplementSolver,
         MadNLPHSL.Ma86Solver,
     ],

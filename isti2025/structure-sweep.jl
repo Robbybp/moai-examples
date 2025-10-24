@@ -38,6 +38,7 @@ tabledir = get_table_dir()
 model_names = [
     "mnist",
     "scopf",
+    "lsv",
 ]
 nn_dir = joinpath(dirname(dirname(@__FILE__)), "nn-models")
 data = []

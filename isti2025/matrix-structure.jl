@@ -14,15 +14,17 @@ include("nn-getter.jl")
 model_names = [
     "mnist",
     "scopf",
+    "lsv",
 ]
 
-matrices = [
-    "original",
-    "pivot",
-    "schur",
-    "A",
-    "B",
-]
+# This is now handled internally in get_matrices_structures, for efficiency
+#matrices = [
+#    "original",
+#    "pivot",
+#    "schur",
+#    "A",
+#    "B",
+#]
 
 data = []
 for model_name in model_names
@@ -33,27 +35,23 @@ for model_name in model_names
         # Here, sample index refers to the sample of the model itself, not the primal
         # variable values within the model.
         model, formulation = MODEL_GETTER[model_name](nnfpath; sample_index = 1)
-        for matrix in matrices
-            println("Starting trial with following parameters:")
-            println("Model:      $model_name")
-            println("NN:         $nnfname")
-            println("Matrix:     $matrix")
-            inputs = (;
-                model = model_name,
-                nn = nnfname,
-                matrix_type = matrix,
-            )
-            results = get_matrix_structure(
-                model,
-                formulation;
-                matrix_type = matrix,
-            )
-            println("Finished trial with following parameters:")
-            println("Model:      $model_name")
-            println("NN:         $nnfname")
-            println("Matrix:     $matrix")
-            println("Results: $results")
-            info = merge(inputs, results)
+        println("Starting trial with following parameters:")
+        println("Model:      $model_name")
+        println("NN:         $nnfname")
+        inputs = (;
+            model = model_name,
+            nn = nnfname,
+        )
+        results = get_matrices_structures(
+            model,
+            formulation;
+        )
+        println("Finished trial with following parameters:")
+        println("Model:      $model_name")
+        println("NN:         $nnfname")
+        for res in results
+            info = merge(inputs, res)
+            println(info)
             push!(data, info)
         end
     end

@@ -17,12 +17,10 @@ include("nn-getter.jl")
 model_names = [
     "mnist",
     "scopf",
+    "lsv",
 ]
 
-linear_solvers = [
-    SchurComplementSolver,
-    #MadNLPHSL.Ma57Solver,
-]
+linear_solvers = [SchurComplementSolver]
 
 nsamples = 10
 

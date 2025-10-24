@@ -22,6 +22,7 @@ include("nn-getter.jl")
 model_names = [
     "mnist",
     "scopf",
+    "lsv",
 ]
 
 matrices = [
@@ -30,13 +31,11 @@ matrices = [
     "schur",
 ]
 
-linear_solvers = [
-    #SchurComplementSolver,
-    #MadNLPHSL.Ma27Solver,
-    MadNLPHSL.Ma57Solver,
-    MadNLPHSL.Ma86Solver,
-    #MadNLPHSL.Ma97Solver,
-]
+linear_solvers = Dict(
+    "mnist" => [MadNLPHSL.Ma57Solver],
+    "scopf" => [MadNLPHSL.Ma86Solver],
+    "lsv" => [MadNLPHSL.Ma86Solver],
+)
 
 OPT_LOOKUP = Dict(
     # Metis or exact minimum degree croak on these matrices.
@@ -73,7 +72,7 @@ for model_name in model_names
         # Here, sample index refers to the sample of the model itself, not the primal
         # variable values within the model.
         model, formulation = MODEL_GETTER[model_name](nnfpath; sample_index = 1)
-        for SolverType in linear_solvers
+        for SolverType in linear_solvers[model_name]
             for matrix in matrices
                 println("Starting trial with following parameters:")
                 println("Model:      $model_name")

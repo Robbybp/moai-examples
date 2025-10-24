@@ -21,6 +21,7 @@ include("nn-getter.jl")
 model_names = [
     "mnist",
     "scopf",
+    "lsv",
 ]
 
 linear_solvers = [
@@ -56,11 +57,10 @@ for model_name in model_names
     println("DONE PRECOMPILING WITH MODEL: $model_name")
 end
 
-n_nns = 3
-
 SKIP = [
     (MadNLPHSL.Ma97Solver, "mnist-tanh2048nodes4layers.pt"),
     (MadNLPHSL.Ma97Solver, joinpath("scopf", "1500nodes10layers.pt")),
+    (MadNLPHSL.Ma57Solver, joinpath("lsv", "118_bus", "118_bus_2048node.pt")),
 ]
 
 data = []
@@ -69,7 +69,7 @@ for model_name in model_names
     # symbolic factorization phase.
     # TODO: This may be fixable using Int64, but this is not necessarily a priority
     # for now.
-    NNs = MODEL_TO_NNS[model_name][1:n_nns]
+    NNs = MODEL_TO_NNS[model_name]
     for nnfname in NNs
         nnfpath = joinpath(get_nn_dir(), nnfname)
         # Here, sample index refers to the sample of the model itself, not the primal

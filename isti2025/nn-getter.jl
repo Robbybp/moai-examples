@@ -22,9 +22,15 @@ MODEL_TO_NNS = Dict(
         #joinpath("scopf", "relu500nodes5layers.pt"),
         #joinpath("scopf", "relu1000nodes7layers.pt"),
     ],
+    "lsv" => [
+        joinpath("lsv", "118_bus", "118_bus_128node.pt"),
+        joinpath("lsv", "118_bus", "118_bus_512node.pt"),
+        joinpath("lsv", "118_bus", "118_bus_2048node.pt"),
+    ],
 )
 
 MODEL_TO_PRECOMPILE_NN = Dict(
     "mnist" => "mnist-tanh128nodes4layers.pt",
     "scopf" => joinpath("scopf", "100nodes3layers.pt"),
+    "lsv" => joinpath("lsv", "118_bus", "118_bus_32node.pt"),
 )

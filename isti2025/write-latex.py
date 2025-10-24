@@ -1,5 +1,15 @@
 import pandas as pd
 import argparse
+import os
+# config.py should be a file in the working directory (`moai-examples`, not the
+# `isti2025` subdirectory.
+import importlib.util
+import sys
+config_fpath = os.path.join(os.path.dirname(__file__), os.pardir, "config.py")
+spec = importlib.util.spec_from_file_location("config", config_fpath)
+config = importlib.util.module_from_spec(spec)
+sys.modules["config"] = config
+spec.loader.exec_module(config)
 
 
 COL_HEADER_MAP = {
@@ -65,6 +75,8 @@ def _fname_to_model(fname):
         return "MNIST"
     elif fname.startswith("scopf"):
         return "SCOPF"
+    elif fname.startswith("lsv"):
+        return "  LSV"
 
 
 def _format_int(n):
@@ -106,33 +118,39 @@ def _parse_solver(name):
 # TODO: Ideally, this would compute the number of parameters from the NN file
 # (or look it up in some other file) rather than hard-coding it here.
 def _get_nparam(fname):
-    if "mnist" in fname:
-        if "128nodes" in fname:
-            return 167818
-        if "512nodes" in fname:
-            return 1457674
-        if "1024nodes" in fname:
-            return 5012490
-        if "2048nodes" in fname:
-            return 18413578
-        if "4096nodes" in fname:
-            return 70381578
-        if "8192nodes" in fname:
-            return 274980874
-    else:
-        if "100nodes3layers" in fname:
-            return 15537
-        if "500nodes5layers" in fname:
-            return 578537
-        if "1000nodes7layers" in fname:
-            return 4159037
-        if "1500nodes10layers" in fname:
-            return 15993037
-        if "2000nodes20layers" in fname:
-            return 68344037
-        if "4000nodes40layers" in fname:
-            return 592768037
-    raise ValueError("Unrecognized NN")
+    nndir = config.get_nn_dir()
+    nnfile = os.path.join(nndir, fname)
+    import torch
+    nn = torch.load(nnfile, weights_only = False)
+    params = [p for p in nn.parameters() if p.requires_grad]
+    return sum(p.numel() for p in params)
+    #if "mnist" in fname:
+    #    if "128nodes" in fname:
+    #        return 167818
+    #    if "512nodes" in fname:
+    #        return 1457674
+    #    if "1024nodes" in fname:
+    #        return 5012490
+    #    if "2048nodes" in fname:
+    #        return 18413578
+    #    if "4096nodes" in fname:
+    #        return 70381578
+    #    if "8192nodes" in fname:
+    #        return 274980874
+    #else:
+    #    if "100nodes3layers" in fname:
+    #        return 15537
+    #    if "500nodes5layers" in fname:
+    #        return 578537
+    #    if "1000nodes7layers" in fname:
+    #        return 4159037
+    #    if "1500nodes10layers" in fname:
+    #        return 15993037
+    #    if "2000nodes20layers" in fname:
+    #        return 68344037
+    #    if "4000nodes40layers" in fname:
+    #        return 592768037
+    #raise ValueError("Unrecognized NN")
 
 
 def _parse_formulation(form):
@@ -188,8 +206,25 @@ def _format_float(n):
         return "%1.1E" % n
 
 
+def _sort_col(c):
+    match c.name:
+        case "model":
+            order = {"mnist": 0, "scopf": 1, "lsv": 2}
+            return c.map(order)
+        case "solver":
+            # Just sort solvers alphabetically
+            return c
+        case "nn":
+            return c.map(_get_nparam)
+        case "matrix_type":
+            order = {"original": 0, "A": 1, "B": 2, "pivot": 3, "schur": 4}
+            return c.map(order)
+        case _:
+            raise ValueError()
+
+
 COL_FORMATTER = {
-    "model": lambda s: s.upper(),
+    "model": lambda s: s.upper().rjust(len(COL_HEADER_MAP["model"])),
     "fname": _fname_to_model,
     "n_inputs": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["n_inputs"])),
     "n_outputs": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["n_outputs"])),
@@ -299,19 +334,19 @@ def _nns_df_to_latex(df):
 
 
 def _structure_df_to_latex(df):
-    df = df.sort_values(by=["model"])
+    df = df.sort_values(by=["model"], key=_sort_col)
     columns = ["model", "n_parameters", "nvar", "ncon", "jnnz", "hnnz"]
     return df_to_latex(df, columns=columns)
 
 
 def _runtime_df_to_latex(df):
-    df = df.sort_values(by=["model", "solver"])
+    df = df.sort_values(by=["model", "solver"], key=_sort_col)
     columns = ["model", "solver", "nn", "sample", "t_init", "t_factorize", "t_solve", "residual", "refine_iter", "speedup"]
     return df_to_latex(df, columns=columns)
 
 
 def _runtime_summary_df_to_latex(df):
-    df = df.sort_values(by=["model", "solver"])
+    df = df.sort_values(by=["model", "solver"], key=_sort_col)
     columns = ["model", "solver", "nn-param", "t_init", "t_factorize", "t_solve", "residual", "refine_iter", "speedup"]
     return df_to_latex(df, columns=columns)
 
@@ -322,30 +357,19 @@ def _fillin_to_latex(df):
 
 
 def _solvers_to_latex(df):
-    df = df.sort_values(by=["model", "solver"])
+    df = df.sort_values(by=["model", "solver"], key=_sort_col)
     columns = ["model", "solver", "nn", "t_init", "t_factorize", "t_solve", "residual"]
     return df_to_latex(df, columns=columns)
 
 
 def _matrix_structure_to_latex(df):
-    def _sort_col(c):
-        match c.name:
-            case "model":
-                # Sort "model" by its raw values
-                return c
-            case "nn":
-                return c.map(_get_nparam)
-            case "matrix_type":
-                order = {"original": 0, "A": 1, "B": 2, "pivot": 3, "schur": 4}
-                return c.map(order)
-            case _:
-                raise ValueError()
     df = df.sort_values(by=["model", "nn", "matrix_type"], key=_sort_col)
     columns = ["model", "nn", "matrix_type", "nrow", "ncol", "nnz"]
     return df_to_latex(df, columns=columns)
 
 
 def _breakdown_to_latex(df):
+    df = df.sort_values(by="model", key=_sort_col)
     columns = [
         "model",
         "nn-param",

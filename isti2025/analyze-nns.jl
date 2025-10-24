@@ -112,7 +112,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
     include("../model-getter.jl")
     include("nn-getter.jl")
 
-    model_names = ["mnist", "scopf"]
+    model_names = ["mnist", "scopf", "lsv"]
     nn_dir = joinpath(dirname(dirname(@__FILE__)), "nn-models")
     nn_data = []
     for model_name in model_names
