@@ -1,6 +1,7 @@
 # TODO: Move model getter to config file or something
 include("adversarial-image.jl")
 include("scopf/model.jl")
+include("lsv/maxls.jl")
 
 """Model functions are expected to accept the following parameters:
 - NN (path to .pt file)
@@ -75,6 +76,7 @@ end
 MODEL_GETTER = Dict(
     "mnist" => _get_adversarial_image_model,
     "scopf" => _get_scopf_model,
+    "lsv" => get_maxls_model,
 )
 
 FORMULATION_TO_KWARGS = Dict(
