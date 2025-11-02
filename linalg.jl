@@ -102,6 +102,7 @@ function Base.show(io::IO, timer::SchurComplementTimer)
     println(io, "  other:          $(other)")
     println(io, "solve:      $(timer.solve)")
     println(io, "----------------------------------------")
+    return
 end
 
 mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions
@@ -118,7 +119,7 @@ mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions
         # NOTE: If pivot_solver_opt is not specified, we will use
         # default_options(PivotSolver) in the SchurComplementSolver constructor.
         pivot_solver_opt = nothing,
-    ) 
+    )
         return new{eltype(pivot_indices)}(
             ReducedSolver,
             PivotSolver,
