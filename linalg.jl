@@ -88,6 +88,7 @@ function Base.show(io::IO, timer::SchurComplementTimer)
     println(io, "  solve:          $(timer.factorize.solve)")
     println(io, "  multiply:       $(timer.factorize.multiply)")
     println(io, "  update_reduced: $(timer.factorize.update_reduced)")
+    #! format: off
     other = (
         timer.factorize.total
         - timer.factorize.reduced
@@ -97,6 +98,7 @@ function Base.show(io::IO, timer::SchurComplementTimer)
         - timer.factorize.multiply
         - timer.factorize.update_reduced
     )
+    #! format: on
     println(io, "  other:          $(other)")
     println(io, "solve:      $(timer.solve)")
     println(io, "----------------------------------------")
