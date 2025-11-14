@@ -269,11 +269,11 @@ function SchurComplementSolver(
     _t = time()
     AI, AJ, AV = SparseArrays.findnz(A)
     A_nnz = SparseArrays.nnz(A)
-    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] findnz")
+    #dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] findnz")
     # Columns of B with any entries. These are possible nonzeros of (B^T C^-1 B)
     B_nzcols = filter(i -> B.colptr[i] < B.colptr[i+1], 1:length(R))
     Bcolset = Set(B_nzcols)
-    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Bcols")
+    #dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Bcols")
     AI_in_Bcols = AI .∈ (Bcolset,)
     AJ_in_Bcols = AJ .∈ (Bcolset,)
     Anz_in_Bcols_indicator = AI_in_Bcols .& AJ_in_Bcols
@@ -283,7 +283,7 @@ function SchurComplementSolver(
     Anz_notin_Bcols = findall(.!Anz_in_Bcols_indicator)
     AI_notin_Bcols = AI[Anz_notin_Bcols]
     AJ_notin_Bcols = AJ[Anz_notin_Bcols]
-    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Bcol indices")
+    #dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Bcol indices")
 
     # I was experimenting with changing the ordering here...
     #I_BTCB = IntType[i for j in B_nzcols for i in B_nzcols if i >= j]
@@ -291,7 +291,7 @@ function SchurComplementSolver(
     I_BTCB = IntType[i for i in B_nzcols for j in B_nzcols if i >= j]
     J_BTCB = IntType[j for i in B_nzcols for j in B_nzcols if i >= j]
     V_BTCB = FloatType[0.0 for _ in I_BTCB]
-    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] BTCB")
+    #dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] BTCB")
 
     # S is the Schur complement:
     #   S = A - B^T C^-1 B
@@ -301,14 +301,14 @@ function SchurComplementSolver(
     SJ = vcat(J_BTCB, AJ_notin_Bcols)
     S_nnz = BTCB_nnz + length(Anz_notin_Bcols)
     SV = zeros(FloatType, S_nnz)
-    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Alloc-Schur")
+    #dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Alloc-Schur")
     # Sort by column, then row
     S_nzperm = sortperm(reduced_dim .* SJ .+ SI)
     SI = SI[S_nzperm]
     SJ = SJ[S_nzperm]
-    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Sort")
+    #dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Sort")
     reduced_matrix = SparseArrays.sparse(SI, SJ, SV)
-    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Construct Schur CSC")
+    #dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Construct Schur CSC")
     # If this fails, nonzeros have been reordered
     @assert all(reduced_matrix.rowval .== SI)
 
@@ -332,12 +332,12 @@ function SchurComplementSolver(
         B_col_remap[AI[Anz_in_Bcols]] .* (B_col_remap[AI[Anz_in_Bcols]] .- 1) ./ 2
         .+ B_col_remap[AJ[Anz_in_Bcols]]
     )
-    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] original remaps")
+    #dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] original remaps")
     @assert !any(Anz_remap .== 0)
     S_nzperm_old_to_new = invperm(S_nzperm)
     Anz_remap = S_nzperm_old_to_new[Anz_remap]
     BTCBnz_remap = S_nzperm_old_to_new[1:BTCB_nnz]
-    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] permuted remaps")
+    #dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] permuted remaps")
 
     # Allocate memory for intermediate solution C^-1 B
     IB, JB, VB = SparseArrays.findnz(B)
@@ -635,19 +635,19 @@ function remove_diagonal_nonzeros(
 )
     _t = time()
     indexset = Set(indices)
-    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] indexset")
+    #dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] indexset")
     nnz = SparseArrays.nnz(csc)
     I, J, V = SparseArrays.findnz(csc)
-    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] findnz")
+    #dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] findnz")
     # Keep the entry if its row isn't in the index set or it's not on the diagonal
     to_retain = filter(k -> I[k] != J[k] || !(I[k] in indexset), 1:nnz)
-    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] filter")
+    #dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] filter")
     I = I[to_retain]
     J = J[to_retain]
     V = V[to_retain]
-    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] extract indices")
+    #dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] extract indices")
     newcsc = SparseArrays.sparse(I, J, V, csc.m, csc.n)
-    dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] sparse")
+    #dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] sparse")
     return newcsc
 end
 
@@ -660,7 +660,7 @@ function refine!(
     full_matrix::Union{Nothing,SparseArrays.SparseMatrixCSC} = nothing,
     tril_to_full_view::Union{Nothing,SubArray} = nothing,
 )
-    println("Starting iterative refinement")
+    #println("Starting iterative refinement")
     _t = time()
     if full_matrix === nothing
         matrix = fill_upper_triangle(solver.csc)
@@ -674,7 +674,7 @@ function refine!(
     residual = rhs - matrix * sol
     resid_norm = LinearAlgebra.norm(residual, Inf)
     t_resid = time() - _t
-    println("[$(@sprintf("%1.2f", t_resid))] Compute residual")
+    #println("[$(@sprintf("%1.2f", t_resid))] Compute residual")
     t_backsolve = 0.0
 
     iter_count = 0
@@ -685,13 +685,13 @@ function refine!(
         correction = copy(residual)
         _t = time()
         MadNLP.solve!(solver, correction)
-        dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Backsolve")
+        #dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Backsolve")
         t_backsolve += dt
         sol .+= correction
         residual = rhs - matrix * sol
         _t = time()
         resid_norm = LinearAlgebra.norm(residual, Inf)
-        dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Update solution and compute residual")
+        #dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Update solution and compute residual")
         t_resid += dt
         iter_count = i
         if resid_norm <= tol
