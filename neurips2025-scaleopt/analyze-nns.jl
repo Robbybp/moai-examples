@@ -8,6 +8,7 @@ import CSV
 include("../pytorch.jl")
 include("localconfig.jl")
 include("../model-getter.jl")
+include("nn-getter.jl")
 
 _isinstance(a, b) = Bool(PythonCall.pybuiltins.isinstance(a, b))
 
