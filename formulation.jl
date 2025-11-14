@@ -53,6 +53,16 @@ function _collect_vars_cons!(
     return nothing
 end
 
+function _collect_vars_cons!(
+    formulation::MOAI.AbstractFormulation,
+    predictor::MOAI.ReducedSpace,
+    variables::Vector{JuMP.VariableRef},
+    constraints::Vector{<:JuMP.ConstraintRef},
+)
+    # Do nothing for a reduced-space predictor
+    return nothing
+end
+
 function get_vars_cons(formulation::MOAI.AbstractFormulation)
     variables = JuMP.VariableRef[]
     constraints = JuMP.ConstraintRef[]
