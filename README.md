@@ -147,3 +147,6 @@ See the `warntype.jl` script in the `types` branch.
 The first type instabilities I noticed were due to `SchurComplementSolver`'s `pivot_solver`
 and `reduced_solver` fields being subtypes of `AbstractLinearSolver`. I'm not sure if these
 are likely to cause slowdowns, or what I can do about them.
+
+## License
+This code is released under a BSD 3-clause license. See LICENSE.md.
