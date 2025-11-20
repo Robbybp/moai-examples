@@ -2,6 +2,7 @@ import JuMP
 import MathOptInterface as MOI
 import NLPModels
 import NLPModelsJuMP
+import MadNLPHSL
 
 _shape(::MOI.VariableIndex) = JuMP.ScalarShape()
 _shape(::MOI.ScalarAffineFunction) = JuMP.ScalarShape()
