@@ -82,24 +82,24 @@ function Base.show(io::IO, timer::SchurComplementTimer)
     println(io, "----------------------------------------")
     println(io, "initialize: $(timer.initialize)")
     println(io, "factorize:  $(timer.factorize.total)")
-    println(io, "  reduced:        $(timer.factorize.reduced)")
-    println(io, "  pivot:          $(timer.factorize.pivot)")
-    println(io, "  update_pivot:   $(timer.factorize.update_pivot)")
-    println(io, "  solve:          $(timer.factorize.solve)")
-    println(io, "  multiply:       $(timer.factorize.multiply)")
-    println(io, "  update_reduced: $(timer.factorize.update_reduced)")
+    println(io, "  factorize Schur:             $(timer.factorize.reduced)")
+    println(io, "  factorize pivot:             $(timer.factorize.pivot)")
+    #println(io, "  update_pivot:   $(timer.factorize.update_pivot)")
+    println(io, "  construct Schur (backsolve): $(timer.factorize.solve)")
+    println(io, "  construct Schur (multiply):  $(timer.factorize.multiply)")
+    #println(io, "  update_reduced: $(timer.factorize.update_reduced)")
     #! format: off
     other = (
         timer.factorize.total
         - timer.factorize.reduced
         - timer.factorize.pivot
-        - timer.factorize.update_pivot
+        #- timer.factorize.update_pivot
         - timer.factorize.solve
         - timer.factorize.multiply
-        - timer.factorize.update_reduced
+        #- timer.factorize.update_reduced
     )
     #! format: on
-    println(io, "  other:          $(other)")
+    println(io, "  other:                       $(other)")
     println(io, "solve:      $(timer.solve)")
     println(io, "----------------------------------------")
     return
@@ -129,6 +129,7 @@ mutable struct SchurComplementOptions{INT} <: MadNLP.AbstractOptions
     end
 end
 
+# TODO: Parameterize this by the inner solver
 struct SchurComplementSolver{T,INT} <: MadNLP.AbstractLinearSolver{T}
     csc::SparseArrays.SparseMatrixCSC{T,INT}
     reduced_solver::MadNLP.AbstractLinearSolver{T}
@@ -685,13 +686,15 @@ function refine!(
         correction = copy(residual)
         _t = time()
         MadNLP.solve!(solver, correction)
-        #dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Backsolve")
+        dt = time() - _t;
+        #println("[$(@sprintf("%1.2f", dt))] Backsolve")
         t_backsolve += dt
         sol .+= correction
         residual = rhs - matrix * sol
         _t = time()
         resid_norm = LinearAlgebra.norm(residual, Inf)
-        #dt = time() - _t; println("[$(@sprintf("%1.2f", dt))] Update solution and compute residual")
+        dt = time() - _t
+        #println("[$(@sprintf("%1.2f", dt))] Update solution and compute residual")
         t_resid += dt
         iter_count = i
         if resid_norm <= tol
