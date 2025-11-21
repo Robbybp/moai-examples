@@ -13,15 +13,6 @@ import MathOptAI as MOAI
 import MLDatasets
 using Printf
 
-# TODO: make_model function
-# - accepts filename, image index, adversary label, and formulation
-# - returns JuMP model
-
-# find_adversarial_image function
-# - accepts the above, plus solver
-# - solves the JuMP model, extracts the pixel values
-# - returns a matrix of the pixel values, along with the network's predictions?
-
 include("linalg.jl")
 include("formulation.jl")
 include("nlpmodels.jl")
