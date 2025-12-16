@@ -11,6 +11,7 @@ using Test
 using Printf
 using Profile, PProf
 import Serialization
+import LinearAlgebra
 
 include("linalg.jl")
 include("btsolver.jl")
@@ -18,6 +19,9 @@ include("nlpmodels.jl")
 include("btsolver.jl")
 include("kkt-partition.jl")
 include("model-getter.jl")
+
+LinearAlgebra.BLAS.set_num_threads(1)
+LinearAlgebra.BLAS.lbt_set_num_threads(1)
 
 function make_square_model(nnfile)
     datadir = joinpath("data", "MNIST", "raw")
@@ -58,7 +62,8 @@ function make_square_model(nnfile)
 end
 
 #model_name = "mnist"
-model_name = "scopf"
+#model_name = "scopf"
+model_name = "lsv"
 
 #nnfile = joinpath("nn-models", "mnist-relu128nodes4layers.pt")
 #nnfile = joinpath("nn-models", "mnist-relu512nodes4layers.pt")
@@ -71,11 +76,13 @@ model_name = "scopf"
 
 #nnfile = joinpath("nn-models", "scopf", "100nodes3layers.pt")
 #nnfile = joinpath("nn-models", "scopf", "500nodes5layers.pt")
-nnfile = joinpath("nn-models", "scopf", "1000nodes7layers.pt")
+#nnfile = joinpath("nn-models", "scopf", "1000nodes7layers.pt")
 #nnfile = joinpath("nn-models", "scopf", "relu100nodes3layers.pt")
 #nnfile = joinpath("nn-models", "scopf", "relu500nodes5layers.pt")
 #nnfile = joinpath("nn-models", "scopf", "relu1000nodes7layers.pt")
 #nnfile = joinpath("nn-models", "scopf", "relu2000nodes20layers.pt")
+
+nnfile = joinpath("nn-models", "lsv", "118_bus", "118_bus_2048node.pt")
 
 _t = time()
 m, formulation = MODEL_GETTER[model_name](nnfile)
@@ -102,7 +109,7 @@ madnlp_schur = JuMP.optimizer_with_attributes(
     #"disable_garbage_collector" => true,
 
     "max_iter" => 10,
-    "print_level" => MadNLP.TRACE,
+    "print_level" => MadNLP.INFO,
 )
 JuMP.set_optimizer(m, madnlp_schur)
 
@@ -131,13 +138,15 @@ println(m.moi_backend.optimizer.model.solver.kkt.linear_solver.timer)
 
 if true
     println()
-    println("Solving with MA57")
-    madnlp_ma57 = JuMP.optimizer_with_attributes(
+    solvername = "MA86"
+    solvertype = MadNLPHSL.Ma86Solver
+    println("Solving with $solvername")
+    madnlp = JuMP.optimizer_with_attributes(
         MadNLP.Optimizer,
         "tol" => 1e-6,
-        "linear_solver" => MadNLPHSL.Ma57Solver,
+        "linear_solver" => solvertype,
         "max_iter" => 10,
     )
-    JuMP.set_optimizer(m, madnlp_ma57)
+    JuMP.set_optimizer(m, madnlp)
     @time JuMP.optimize!(m)
 end
