@@ -171,7 +171,7 @@ if __name__ == "__main__":
     argparser.add_argument("--nodes", default=100, type=int, help="Nodes per layer")
     argparser.add_argument("--layers", default=3, type=int, help="Layers, including input and output")
     argparser.add_argument("--small", action="store_true", help="Create a small neural network. This overrides --nodes and --layers")
-    argparser.add_argument("--nn-dir", default="nn-models", help="Directory to store saved NN models")
+    argparser.add_argument("--nn-dir", default=os.path.join("nn-models", "scopf"), help="Directory to store saved NN models")
     argparser.add_argument("--activation", default="tanh", help="'tanh' or 'relu', Default = tanh")
     argparser.add_argument("--epochs", type=int, default=10000, help="Default = 10000")
     args = argparser.parse_args()

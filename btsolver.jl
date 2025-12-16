@@ -336,7 +336,7 @@ function MadNLP.factorize!(solver::BlockTriangularSolver)
     # Update off-diagonal matrices
     solver.off_diagonal_dense_matrices .= Matrix.(off_diagonal_matrices[solver.off_diagonal_dense_indices])
     dt = time() - t0
-    println("[$dt] Update nzval")
+    #println("[$dt] Update nzval")
 
     dt = time() - t0
     #println("[$dt] Loop over nonzeros")
@@ -387,7 +387,7 @@ function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Matrix)
     t_loop = 0.0
     t_multiply_and_subtract = 0.0
     _t = time()
-    println()
+    #println()
     #println("Entering backsolve loop for $nblock blocks and $nedges edges")
     for b in 1:nblock
         local _t = time()
@@ -416,13 +416,13 @@ function MadNLP.solve!(solver::BlockTriangularSolver, rhs::Matrix)
     #println("Total:                 $t_loop")
     #println("---------------")
     dt = time() - _t
-    println("[$dt] Backsolve")
+    #println("[$dt] Backsolve")
     for (i, rhs_i) in enumerate(rhs_blocks)
         # We apply the inverse column permutation to our solution.
         rhs[blocks[i][2], :] .= rhs_i
     end
     dt = time() - _t
-    println("[$dt] Update rhs")
+    #println("[$dt] Update rhs")
     # By updating B in-place, we have implicitly applied the inverse
     # row permutation to our solution. We must undo this row permutation
     # *and* apply the column permutation to our solution in order to

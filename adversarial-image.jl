@@ -13,15 +13,6 @@ import MathOptAI as MOAI
 import MLDatasets
 using Printf
 
-# TODO: make_model function
-# - accepts filename, image index, adversary label, and formulation
-# - returns JuMP model
-
-# find_adversarial_image function
-# - accepts the above, plus solver
-# - solves the JuMP model, extracts the pixel values
-# - returns a matrix of the pixel values, along with the network's predictions?
-
 include("linalg.jl")
 include("formulation.jl")
 include("nlpmodels.jl")
@@ -35,13 +26,13 @@ OPTIMIZER_LOOKUP = Dict(
 OPTIMIZER_ATTRIBUTES_LOOKUP = Dict(
     "ipopt"  => [
         "tol" => 1e-6,
-        "linear_solver" => "ma27",
+        "linear_solver" => "ma57",
         "print_user_options" => "yes",
         "print_timing_statistics" => "yes",
     ],
     #"madnlp" => [
     #    "tol" => 1e-6,
-    #    "linear_solver" => MadNLPHSL.Ma27Solver,
+    #    "linear_solver" => MadNLPHSL.Ma57Solver,
     #    "max_iter" => 5,
     #],
     "madnlp" => ["tol" => 1e-6, "linear_solver" => SchurComplementSolver],
@@ -82,6 +73,7 @@ function get_adversarial_model(
     vector_nonlinear_oracle::Bool = false,
     device = "cpu",
     hessian = true,
+    relaxation_parameter = 1e-6,
 )
     _t = time()
     # Network is trained so that outputs represent 0-9
@@ -121,7 +113,7 @@ function get_adversarial_model(
     if reduced_space || gray_box || vector_nonlinear_oracle
         config = Dict()
     else
-        config = Dict(:ReLU => MOAI.ReLUQuadratic(relaxation_parameter = 1e-6))
+        config = Dict(:ReLU => MOAI.ReLUQuadratic(; relaxation_parameter))
     end
 
     m = JuMP.Model()
@@ -195,7 +187,6 @@ function find_adversarial_image(
         variables, constraints = get_vars_cons(formulation)
         pivot_indices = get_kkt_indices(m, variables, constraints)
         JuMP.set_optimizer_attribute(m, "pivot_indices", pivot_indices)
-        #JuMP.set_optimizer_attribute(m, "PivotSolver", MadNLPHSL.Ma57Solver)
         JuMP.set_optimizer_attribute(m, "PivotSolver", BlockTriangularSolver)
         blocks = partition_indices_by_layer(m, formulation)
         JuMP.set_optimizer_attribute(m, "pivot_solver_opt", BlockTriangularOptions(; blocks))
