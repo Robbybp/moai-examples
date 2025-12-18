@@ -36,7 +36,6 @@ folder into the `nn-models/lsv` folder here. The relevant directory structure
 should look like this:
 ```console
 nn-models
-├── 500nodes5layers.pt
 ├── lsv
 │   └── 118_bus
 │       ├── 118_bus_128node.pt
@@ -87,7 +86,7 @@ Paper 2. "Exploiting block-triangular submatrices..."
 -----------------------------------------------------
 
 Reproducing the results of "Exploiting block-triangular submatrices in
-symmetric indefinite linear systems."
+symmetric indefinite linear systems" (in preparation).
 
 1. Generate a table of neural network structures:
 ```sh
