@@ -18,6 +18,7 @@ COL_HEADER_MAP = {
     "n_outputs": "N. outputs",
     "n_neurons": "N. neurons",
     "n_parameters": "N. param.",
+    "n_layers": "N. layers",
     "activations": "Activation".rjust(15),
     "NN": "NN".rjust(9),
     "model": "Model",
@@ -230,6 +231,7 @@ COL_FORMATTER = {
     "n_outputs": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["n_outputs"])),
     "n_neurons": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["n_neurons"])),
     "n_parameters": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["n_parameters"])),
+    "n_layers": lambda n: _format_int(n).rjust(len(COL_HEADER_MAP["n_layers"])),
     "activations": lambda a: _parse_activations(a).rjust(15),
     "NN": lambda n: _format_int(_get_nparam(n)).rjust(9),
     "nn": lambda n: _format_int(_get_nparam(n)).rjust(9),
@@ -329,7 +331,7 @@ def df_to_latex(df, columns=None):
 
 
 def _nns_df_to_latex(df):
-    columns = ["fname", "n_inputs", "n_outputs", "n_neurons", "n_parameters", "activations"]
+    columns = ["fname", "n_inputs", "n_outputs", "n_neurons", "n_layers", "n_parameters", "activations"]
     return df_to_latex(df, columns=columns)
 
 
