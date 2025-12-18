@@ -9,6 +9,9 @@ import DataFrames
 import JuMP
 import MadNLP
 import MadNLPHSL
+import LinearAlgebra
+LinearAlgebra.BLAS.set_num_threads(1)
+LinearAlgebra.BLAS.lbt_set_num_threads(1)
 
 include("../config.jl")
 include("localconfig.jl")
@@ -34,6 +37,9 @@ linear_solvers = [
 
 OPT_LOOKUP = Dict(
     # Metis or exact minimum degree croak on these matrices.
+    #
+    # MA57 (in HSL_jll) is compiled against LBT. So number of threads for L3 BLAS should
+    # be controlled by lbt_set_num_threads above.
     MadNLPHSL.Ma57Solver => MadNLPHSL.Ma57Options(; ma57_pivot_order = 2), # In MA57, 2=AMD
     MadNLPHSL.Ma86Solver => MadNLPHSL.Ma86Options(; ma86_order = MadNLPHSL.AMD, ma86_num_threads = 1),
     MadNLPHSL.Ma97Solver => MadNLPHSL.Ma97Options(; ma97_order = MadNLPHSL.AMD, ma97_num_threads = 1),

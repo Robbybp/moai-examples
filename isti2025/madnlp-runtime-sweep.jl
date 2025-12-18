@@ -5,6 +5,9 @@ import DataFrames
 import JuMP
 import MadNLP
 import MadNLPHSL
+import LinearAlgebra
+LinearAlgebra.BLAS.set_num_threads(1)
+LinearAlgebra.BLAS.lbt_set_num_threads(1)
 
 include("../config.jl")
 include("localconfig.jl")
