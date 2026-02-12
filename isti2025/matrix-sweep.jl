@@ -1,5 +1,4 @@
-"""This script solves the KKT system at the initial guess with several linear solvers.
-The purpose is to justify our comparison against MA57.
+"""This script compares runtime, fill-in, and FLOPs for different instances
 """
 
 using Printf
