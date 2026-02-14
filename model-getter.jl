@@ -83,5 +83,8 @@ FORMULATION_TO_KWARGS = Dict(
     :full_space => Dict(),
     :reduced_space => Dict(:reduced_space => true),
     :gray_box => Dict(:gray_box => true, :hessian => true, :reduced_space => false),
-    :vector_nonlinear_oracle => Dict(:vector_nonlinear_oracle => true, :hessian => true),
+
+    # As of MathOptAI.jl 0.2.0, vector_nonlinear_oracle is deprecated. We now use
+    # gray_box, which has been updated to use the vector_nonlinear_oracle implementation
+    :vector_nonlinear_oracle => Dict(:gray_box => true, :hessian => true),
 )

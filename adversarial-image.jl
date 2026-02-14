@@ -126,7 +126,9 @@ function get_adversarial_model(
         config,
         reduced_space = reduced_space,
         gray_box = gray_box,
-        vector_nonlinear_oracle = vector_nonlinear_oracle,
+        # As of MathOptAI 0.2.0, vector_nonlinear_oracle is deprecated.
+        # The same functionality is now accessed using gray_box.
+        #vector_nonlinear_oracle = vector_nonlinear_oracle,
         hessian = hessian,
         device,
     )
